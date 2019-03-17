@@ -1268,15 +1268,15 @@ func parseFlowSpec(attrs Attrs) (f FlowSpec, err error) {
 	actions := make([]Action, 0)
 	for _, actattr := range actattrs {
 		parser, ok := actionParsers[actattr.typ]
-		if !ok {
-			return f, fmt.Errorf("unknown action type %d (value %v)", actattr.typ, actattr.val)
+		if ok {
+			action, err := parser(actattr.typ, actattr.val)
+			if err != nil {
+				return f, err
+			}
+			actions = append(actions, action)
+		} else {
+			fmt.Errorf("unknown action type %d (value %v)", actattr.typ, actattr.val)
 		}
-
-		action, err := parser(actattr.typ, actattr.val)
-		if err != nil {
-			return f, err
-		}
-		actions = append(actions, action)
 	}
 
 	f.Actions = actions
