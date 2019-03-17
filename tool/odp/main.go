@@ -13,7 +13,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/weaveworks/go-odp/odp"
+	"github.com/tufin/go-odp/odp"
 )
 
 func printErr(f string, a ...interface{}) bool {
