@@ -5,7 +5,7 @@ import (
 	"syscall"
 )
 
-// Datapaths are identified by the ifindex of their netdev.
+// Datapaths are identified by the Ifindex of their netdev.
 type DatapathID int32
 
 type datapathInfo struct {
@@ -30,17 +30,17 @@ func (dpif *Dpif) parseDatapathInfo(msg *NlMsgParser, cmd int) (res datapathInfo
 }
 
 type DatapathHandle struct {
-	dpif    *Dpif
-	ifindex DatapathID
+	Dpif    *Dpif
+	Ifindex DatapathID
 }
 
 func (dp DatapathHandle) ID() DatapathID {
-	return dp.ifindex
+	return dp.Ifindex
 }
 
 func (dp DatapathHandle) Reopen() (DatapathHandle, error) {
-	dpif, err := dp.dpif.Reopen()
-	return DatapathHandle{dpif: dpif, ifindex: dp.ifindex}, err
+	dpif, err := dp.Dpif.Reopen()
+	return DatapathHandle{Dpif: dpif, Ifindex: dp.Ifindex}, err
 }
 
 func (dpif *Dpif) CreateDatapath(name string) (DatapathHandle, error) {
@@ -63,7 +63,7 @@ func (dpif *Dpif) CreateDatapath(name string) (DatapathHandle, error) {
 		return DatapathHandle{}, err
 	}
 
-	return DatapathHandle{dpif: dpif, ifindex: dpi.ifindex}, nil
+	return DatapathHandle{Dpif: dpif, Ifindex: dpi.ifindex}, nil
 }
 
 func IsDatapathNameAlreadyExistsError(err error) bool {
@@ -86,7 +86,7 @@ func (dpif *Dpif) LookupDatapath(name string) (DatapathHandle, error) {
 		return DatapathHandle{}, err
 	}
 
-	return DatapathHandle{dpif: dpif, ifindex: dpi.ifindex}, nil
+	return DatapathHandle{Dpif: dpif, Ifindex: dpi.ifindex}, nil
 }
 
 type Datapath struct {
@@ -110,7 +110,7 @@ func (dpif *Dpif) LookupDatapathByID(ifindex DatapathID) (Datapath, error) {
 	}
 
 	return Datapath{
-		Handle: DatapathHandle{dpif: dpif, ifindex: ifindex},
+		Handle: DatapathHandle{Dpif: dpif, Ifindex: ifindex},
 		Name:   dpi.name,
 	}, nil
 }
@@ -131,7 +131,7 @@ func (dpif *Dpif) EnumerateDatapaths() (map[string]DatapathHandle, error) {
 		if err != nil {
 			return err
 		}
-		res[dpi.name] = DatapathHandle{dpif: dpif, ifindex: dpi.ifindex}
+		res[dpi.name] = DatapathHandle{Dpif: dpif, Ifindex: dpi.ifindex}
 		return nil
 	}
 
@@ -144,28 +144,28 @@ func (dpif *Dpif) EnumerateDatapaths() (map[string]DatapathHandle, error) {
 }
 
 func (dp DatapathHandle) Delete() error {
-	req := NewNlMsgBuilder(RequestFlags, dp.dpif.families[DATAPATH].id)
+	req := NewNlMsgBuilder(RequestFlags, dp.Dpif.families[DATAPATH].id)
 	req.PutGenlMsghdr(OVS_DP_CMD_DEL, OVS_DATAPATH_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 
-	_, err := dp.dpif.sock.Request(req)
+	_, err := dp.Dpif.sock.Request(req)
 	if err != nil {
 		return err
 	}
 
-	dp.dpif = nil
-	dp.ifindex = 0
+	dp.Dpif = nil
+	dp.Ifindex = 0
 	return nil
 }
 
 func (dp DatapathHandle) checkNlMsgHeaders(msg *NlMsgParser, family int, cmd int) error {
-	_, ovshdr, err := dp.dpif.checkNlMsgHeaders(msg, family, cmd)
+	_, ovshdr, err := dp.Dpif.checkNlMsgHeaders(msg, family, cmd)
 	if err != nil {
 		return err
 	}
 
-	if ovshdr.datapathID() != dp.ifindex {
-		return fmt.Errorf("wrong datapath ifindex received (got %d, expected %d)", ovshdr.datapathID(), dp.ifindex)
+	if ovshdr.datapathID() != dp.Ifindex {
+		return fmt.Errorf("wrong datapath Ifindex received (got %d, expected %d)", ovshdr.datapathID(), dp.Ifindex)
 	}
 
 	return nil

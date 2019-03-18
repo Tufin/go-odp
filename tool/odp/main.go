@@ -1104,6 +1104,52 @@ func listFlows(f Flags) bool {
 		os.Stdout.WriteString("\n")
 	}
 
+	fmt.Println("before follow")
+	dpif2, err := odp.NewDpif2()
+	if err != nil {
+		fmt.Println(err)
+		return false
+	}
+	defer dpif2.Close()
+	//
+	dp2, dpname2 := lookupDatapath(dpif2, args[0])
+	if dp == nil {
+		return false
+	}
+
+	//dp2 := odp.DatapathHandle{Dpif: dpif, Ifindex: dp.Ifindex}
+	//dpname2 := "ovs-system"
+
+	fmt.Println("follow")
+	flows2, err := dp2.FollowFlows()
+	if err != nil {
+		return false
+
+	}
+
+	fmt.Println("here1")
+	for flow2 := range flows2 {
+
+		os.Stdout.WriteString(dpname2)
+		err = printFlowKeys(flow2.FlowKeys, *dp)
+		if err != nil {
+			return printErr("%s", err)
+		}
+
+		err = printFlowActions(flow2.Actions, *dp)
+		if err != nil {
+			return printErr("%s", err)
+		}
+
+		if showStats {
+			fmt.Printf(": %d packets, %d bytes, used %d",
+				flow2.Packets, flow2.Bytes, flow2.Used)
+		}
+
+		os.Stdout.WriteString("\n")
+
+	}
+
 	return true
 }
 
@@ -1129,7 +1175,7 @@ func printFlowKeys(fks odp.FlowKeys, dp odp.DatapathHandle) error {
 			printEthAddrOption("eth-dst", k.EthDst[:], m.EthDst[:])
 
 		case odp.TunnelFlowKey:
-			printTunnelOptions(fk, "tunnel-")
+			parseSetTunnel(fk, "tunnel-")
 
 		default:
 			fmt.Printf(" %T:%v", fk, fk)
@@ -1193,7 +1239,7 @@ func printIntOption(opt string, k uint, m uint, allbits uint) {
 	}
 }
 
-func printTunnelOptions(fk odp.TunnelFlowKey, prefix string) {
+func parseSetTunnel(fk odp.TunnelFlowKey, prefix string) {
 	k := fk.Key()
 	m := fk.Mask()
 
@@ -1244,5 +1290,5 @@ func printSetTunnelOptions(a odp.SetTunnelAction) {
 	if a.Present.TpDst {
 		fk.SetTpDst(a.TpDst)
 	}
-	printTunnelOptions(fk, "set-tunnel-")
+	parseSetTunnel(fk, "set-tunnel-")
 }

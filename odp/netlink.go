@@ -66,6 +66,72 @@ func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
 	}, nil
 }
 
+func OpenNetlinkSocket2(protocol int) (*NetlinkSocket, error) {
+	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW, protocol)
+	if err != nil {
+		return nil, err
+	}
+
+	success := false
+	defer func() {
+		if !success {
+			syscall.Close(fd)
+		}
+	}()
+
+	// It's fairly easy to provoke ENOBUFS from a netlink socket
+	// receiving miss upcalls when every packet misses.  The
+	// default socket buffer size is relatively small at 200KB,
+	// and the default of /proc/sys/net/core/rmem_max means we
+	// can't easily increase it.
+
+	var i uint32
+	for i = 1; i < 7; i++ {
+		if err := syscall.SetsockoptInt(fd, SOL_NETLINK, syscall.NETLINK_ADD_MEMBERSHIP, 1<<i); err != nil {
+			fmt.Println(i)
+			//return nil, err
+		}
+	}
+	//
+	//if err := syscall.SetsockoptInt(fd, SOL_NETLINK, syscall.NETLINK_ADD_MEMBERSHIP, 9); err != nil {
+	//	return nil, err
+	//}
+	//
+	//if err := syscall.SetsockoptInt(fd, SOL_NETLINK, syscall.NETLINK_ADD_MEMBERSHIP, 12); err != nil {
+	//	return nil, err
+	//}
+
+	//if err := syscall.SetsockoptInt(fd, SOL_NETLINK, 0x8, 1); err != nil {
+	//	return nil, err
+	//}
+
+	addr := syscall.SockaddrNetlink{Family: syscall.AF_NETLINK, Groups: 0x3f}
+	if err := syscall.Bind(fd, &addr); err != nil {
+		return nil, err
+	}
+
+	localaddr, err := syscall.Getsockname(fd)
+	if err != nil {
+		return nil, err
+	}
+
+	nladdr, ok := localaddr.(*syscall.SockaddrNetlink)
+	if !ok {
+		return nil, fmt.Errorf("Expected netlink sockaddr, got %s", reflect.TypeOf(localaddr))
+	}
+
+	success = true
+	return &NetlinkSocket{
+		fd:   fd,
+		addr: nladdr,
+
+		// netlink messages can be bigger than this, but it
+		// seems unlikely in practice, and this is similar to
+		// the limit that the OVS userspace imposes.
+		buf: make([]byte, 65536),
+	}, nil
+}
+
 func (s *NetlinkSocket) PortId() uint32 {
 	return s.addr.Pid
 }

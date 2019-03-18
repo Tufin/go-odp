@@ -21,7 +21,7 @@ func (origDP DatapathHandle) ConsumeMisses(consumer MissConsumer) (Cancelable, e
 	success := false
 	defer func() {
 		if !success {
-			dp.dpif.Close()
+			dp.Dpif.Close()
 		}
 	}()
 
@@ -32,7 +32,7 @@ func (origDP DatapathHandle) ConsumeMisses(consumer MissConsumer) (Cancelable, e
 
 	defer func() {
 		if !success {
-			missDP.dpif.Close()
+			missDP.Dpif.Close()
 		}
 	}()
 
@@ -41,7 +41,7 @@ func (origDP DatapathHandle) ConsumeMisses(consumer MissConsumer) (Cancelable, e
 	// we need to listen for them too.
 	vportConsumer := &missVportConsumer{
 		dp:           dp,
-		upcallPortId: missDP.dpif.sock.PortId(),
+		upcallPortId: missDP.Dpif.sock.PortId(),
 		missConsumer: consumer,
 		vportsDone:   make(map[VportID]struct{}),
 	}
@@ -72,7 +72,7 @@ func (origDP DatapathHandle) ConsumeMisses(consumer MissConsumer) (Cancelable, e
 	success = true
 	vportConsumer.cancel = vportCancel
 	go missDP.consumeMisses(consumer, vportConsumer)
-	return cancelableDpif{missDP.dpif}, nil
+	return cancelableDpif{missDP.Dpif}, nil
 }
 
 type missVportConsumer struct {
@@ -121,7 +121,7 @@ func (c *missVportConsumer) Error(err error, stopped bool) {
 }
 
 func (dp DatapathHandle) consumeMisses(consumer MissConsumer, vportConsumer *missVportConsumer) {
-	dp.dpif.sock.consume(consumer, func(msg *NlMsgParser) error {
+	dp.Dpif.sock.consume(consumer, func(msg *NlMsgParser) error {
 		if err := dp.checkNlMsgHeaders(msg, PACKET, OVS_PACKET_CMD_MISS); err != nil {
 			return err
 		}
@@ -145,15 +145,15 @@ func (dp DatapathHandle) consumeMisses(consumer MissConsumer, vportConsumer *mis
 	})
 
 	vportConsumer.cancel.Cancel()
-	vportConsumer.dp.dpif.Close()
+	vportConsumer.dp.Dpif.Close()
 }
 
 func (dp DatapathHandle) Execute(packet []byte, keys FlowKeys, actions []Action) error {
-	dpif := dp.dpif
+	dpif := dp.Dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[PACKET].id)
 	req.PutGenlMsghdr(OVS_PACKET_CMD_EXECUTE, OVS_PACKET_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 	req.PutSliceAttr(OVS_PACKET_ATTR_PACKET, packet)
 
 	req.PutNestedAttrs(OVS_PACKET_ATTR_KEY, func() {

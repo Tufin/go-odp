@@ -192,11 +192,11 @@ func parseVport(msg *NlMsgParser) (id VportID, s VportSpec, err error) {
 }
 
 func (dp DatapathHandle) CreateVport(spec VportSpec) (VportID, error) {
-	dpif := dp.dpif
+	dpif := dp.Dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[VPORT].id)
 	req.PutGenlMsghdr(OVS_VPORT_CMD_NEW, OVS_VPORT_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 	req.PutStringAttr(OVS_VPORT_ATTR_NAME, spec.Name())
 	req.PutUint32Attr(OVS_VPORT_ATTR_TYPE, spec.typeId())
 	req.PutNestedAttrs(OVS_VPORT_ATTR_OPTIONS, func() {
@@ -257,21 +257,21 @@ func lookupVport(dpif *Dpif, dpifindex DatapathID, name string) (DatapathID, Vpo
 
 func (dpif *Dpif) LookupVportByName(name string) (DatapathHandle, Vport, error) {
 	dpifindex, vport, err := lookupVport(dpif, 0, name)
-	return DatapathHandle{dpif: dpif, ifindex: dpifindex}, vport, err
+	return DatapathHandle{Dpif: dpif, Ifindex: dpifindex}, vport, err
 }
 
 func (dp DatapathHandle) LookupVportByName(name string) (Vport, error) {
-	_, vport, err := lookupVport(dp.dpif, dp.ifindex, name)
+	_, vport, err := lookupVport(dp.Dpif, dp.Ifindex, name)
 	return vport, err
 }
 
 func (dp DatapathHandle) LookupVport(id VportID) (Vport, error) {
-	req := NewNlMsgBuilder(RequestFlags, dp.dpif.families[VPORT].id)
+	req := NewNlMsgBuilder(RequestFlags, dp.Dpif.families[VPORT].id)
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 	req.PutUint32Attr(OVS_VPORT_ATTR_PORT_NO, uint32(id))
 
-	resp, err := dp.dpif.sock.Request(req)
+	resp, err := dp.Dpif.sock.Request(req)
 	if err != nil {
 		return Vport{}, err
 	}
@@ -298,16 +298,16 @@ func (dp DatapathHandle) LookupVportName(id VportID) (string, error) {
 
 		// No vport with the given port number, so just
 		// show the number
-		return fmt.Sprintf("%d:%d", dp.ifindex, id), nil
+		return fmt.Sprintf("%d:%d", dp.Ifindex, id), nil
 	}
 
 	return vport.Spec.Name(), nil
 }
 
 func (dp DatapathHandle) EnumerateVports() ([]Vport, error) {
-	req := NewNlMsgBuilder(DumpFlags, dp.dpif.families[VPORT].id)
+	req := NewNlMsgBuilder(DumpFlags, dp.Dpif.families[VPORT].id)
 	req.PutGenlMsghdr(OVS_VPORT_CMD_GET, OVS_VPORT_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 
 	var res []Vport
 	consumer := func(resp *NlMsgParser) error {
@@ -325,7 +325,7 @@ func (dp DatapathHandle) EnumerateVports() ([]Vport, error) {
 		return nil
 	}
 
-	err := dp.dpif.sock.RequestMulti(req, consumer)
+	err := dp.Dpif.sock.RequestMulti(req, consumer)
 	if err != nil {
 		return nil, err
 	}
@@ -334,23 +334,23 @@ func (dp DatapathHandle) EnumerateVports() ([]Vport, error) {
 }
 
 func (dp DatapathHandle) DeleteVport(id VportID) error {
-	req := NewNlMsgBuilder(RequestFlags, dp.dpif.families[VPORT].id)
+	req := NewNlMsgBuilder(RequestFlags, dp.Dpif.families[VPORT].id)
 	req.PutGenlMsghdr(OVS_VPORT_CMD_DEL, OVS_VPORT_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 	req.PutUint32Attr(OVS_VPORT_ATTR_PORT_NO, uint32(id))
 
-	_, err := dp.dpif.sock.Request(req)
+	_, err := dp.Dpif.sock.Request(req)
 	return err
 }
 
 func (dp DatapathHandle) setVportUpcallPortId(id VportID, pid uint32) error {
-	req := NewNlMsgBuilder(RequestFlags, dp.dpif.families[VPORT].id)
+	req := NewNlMsgBuilder(RequestFlags, dp.Dpif.families[VPORT].id)
 	req.PutGenlMsghdr(OVS_VPORT_CMD_SET, OVS_VPORT_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 	req.PutUint32Attr(OVS_VPORT_ATTR_PORT_NO, uint32(id))
 	req.PutUint32Attr(OVS_VPORT_ATTR_UPCALL_PID, pid)
 
-	_, err := dp.dpif.sock.Request(req)
+	_, err := dp.Dpif.sock.Request(req)
 	return err
 }
 
@@ -365,12 +365,12 @@ func (dpif *Dpif) ConsumeVportEvents(consumer VportEventsConsumer) (Cancelable, 
 }
 
 func (dp DatapathHandle) ConsumeVportEvents(consumer VportEventsConsumer) (Cancelable, error) {
-	mcGroup, err := dp.dpif.getMCGroup(VPORT, "ovs_vport")
+	mcGroup, err := dp.Dpif.getMCGroup(VPORT, "ovs_vport")
 	if err != nil {
 		return nil, err
 	}
 
-	consumeDpif, err := dp.dpif.Reopen()
+	consumeDpif, err := dp.Dpif.Reopen()
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +381,7 @@ func (dp DatapathHandle) ConsumeVportEvents(consumer VportEventsConsumer) (Cance
 		return nil, err
 	}
 
-	go consumeDpif.consumeVportEvents(consumer, dp.ifindex)
+	go consumeDpif.consumeVportEvents(consumer, dp.Ifindex)
 	return cancelableDpif{consumeDpif}, nil
 }
 
@@ -392,7 +392,7 @@ func (dpif *Dpif) consumeVportEvents(consumer VportEventsConsumer, ifindex Datap
 			return err
 		}
 
-		// filter by ifindex, if consuming on a specific datapath
+		// filter by Ifindex, if consuming on a specific datapath
 		if ifindex >= 0 && ovshdr.datapathID() != ifindex {
 			return nil
 		}

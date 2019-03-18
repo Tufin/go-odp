@@ -1,3 +1,5 @@
+// +build linux
+
 package odp
 
 import (
@@ -1284,11 +1286,11 @@ func parseFlowSpec(attrs Attrs) (f FlowSpec, err error) {
 }
 
 func (dp DatapathHandle) CreateFlow(f FlowSpec) error {
-	dpif := dp.dpif
+	dpif := dp.Dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_NEW, OVS_FLOW_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 	if err := f.toNlAttrs(req); err != nil {
 		return err
 	}
@@ -1298,11 +1300,11 @@ func (dp DatapathHandle) CreateFlow(f FlowSpec) error {
 }
 
 func (dp DatapathHandle) DeleteFlow(fks FlowKeys) error {
-	dpif := dp.dpif
+	dpif := dp.Dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_DEL, OVS_FLOW_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 	if err := fks.toNlAttrs(req); err != nil {
 		return err
 	}
@@ -1312,11 +1314,11 @@ func (dp DatapathHandle) DeleteFlow(fks FlowKeys) error {
 }
 
 func (dp DatapathHandle) ClearFlow(f FlowSpec) error {
-	dpif := dp.dpif
+	dpif := dp.Dpif
 
 	req := NewNlMsgBuilder(RequestFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_SET, OVS_FLOW_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 	if err := f.toNlAttrs(req); err != nil {
 		return err
 	}
@@ -1367,13 +1369,14 @@ func parseFlowInfo(attrs Attrs) (fi FlowInfo, err error) {
 }
 
 func (dp DatapathHandle) EnumerateFlows() ([]FlowInfo, error) {
-	dpif := dp.dpif
+	dpif := dp.Dpif
 	res := make([]FlowInfo, 0)
 
 	req := NewNlMsgBuilder(DumpFlags, dpif.families[FLOW].id)
 	req.PutGenlMsghdr(OVS_FLOW_CMD_GET, OVS_FLOW_VERSION)
-	req.putOvsHeader(dp.ifindex)
+	req.putOvsHeader(dp.Ifindex)
 
+	//TODO: check if we can send filter to the message (eg only tunnels)
 	consumer := func(resp *NlMsgParser) error {
 		attrs, err := dp.parseFlowMsg(resp, OVS_FLOW_CMD_GET)
 		if err != nil {
@@ -1393,6 +1396,68 @@ func (dp DatapathHandle) EnumerateFlows() ([]FlowInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return res, nil
+}
+
+func (dp DatapathHandle) FollowFlows() (chan FlowInfo, error) {
+	dpif := dp.Dpif
+	res := make(chan FlowInfo)
+
+	//req := NewNlMsgBuilder(DumpFlags, Dpif.families[FLOW].id)
+	//req.PutGenlMsghdr(OVS_FLOW_CMD_GET, OVS_FLOW_VERSION)
+	//req.putOvsHeader(dp.Ifindex)
+	//
+	//TODO: check if we can send filter to the message (eg only tunnels)
+	//consumer := func(resp *NlMsgParser) (bool, error) {
+	//	fmt.Println("consumer")
+	//	attrs, err := dp.parseFlowMsg(resp, OVS_FLOW_CMD_GET)
+	//	if err != nil {
+	//		return true, err
+	//	}
+	//
+	//	fi, err := parseFlowInfo(attrs)
+	//	if err != nil {
+	//		return true, err
+	//	}
+	//
+	//	res <- fi
+	//	return false, nil
+	//}
+
+	fmt.Println("before sockopt")
+
+	if err := syscall.SetsockoptInt(dpif.sock.fd, syscall.SOL_SOCKET, syscall.SO_RCVBUFFORCE, 131072); err != nil {
+		// and if that doesn't work fall back to the ordinary SO_RCVBUF
+		if err := syscall.SetsockoptInt(dpif.sock.fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, 131072); err != nil {
+			fmt.Println("error set buffer")
+			return res, err
+		}
+	}
+
+	fmt.Println("after sockopt")
+	//loop:
+	for {
+		rb := make([]byte, 2*syscall.Getpagesize())
+		fmt.Println("before recvfrom")
+		nr, _, err := syscall.Recvfrom(dpif.sock.fd, rb, 0)
+		if err == syscall.ENOBUFS {
+			// ENOBUF means we miss some events here. No way around it. That's life.
+			fmt.Println("ENOBUFS")
+			fmt.Println(nr)
+			continue
+		} else if err != nil {
+			fmt.Println(err)
+			return res, err
+		}
+	}
+
+	fmt.Println("after loop ")
+	//err := Dpif.sock.Receive(consumer)
+	//fmt.Println("after receive")
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	return res, nil
 }
