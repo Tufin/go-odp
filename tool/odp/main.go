@@ -1151,10 +1151,14 @@ func listFlows(f Flags) bool {
 		}
 	}()
 
-	err = dp2.FollowFlows(res)
+	res2, _, err := dp2.FollowFlows()
 	if err != nil {
 		return false
 
+	}
+
+	for f := range res2 {
+		fmt.Println(f)
 	}
 
 	fmt.Println("here1")

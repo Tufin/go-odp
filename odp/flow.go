@@ -5,9 +5,17 @@ package odp
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"syscall"
+	"unsafe"
+
+	"golang.org/x/sys/unix"
+)
+
+const (
+	sizeofGenmsg = uint32(unsafe.Sizeof(unix.Nfgenmsg{}))
 )
 
 func AllBytes(data []byte, x byte) bool {
@@ -1400,107 +1408,120 @@ func (dp DatapathHandle) EnumerateFlows() ([]FlowInfo, error) {
 	return res, nil
 }
 
-func (dp DatapathHandle) FollowFlows(res chan FlowInfo) error {
-	dpif := dp.Dpif
-
-	//req := NewNlMsgBuilder(DumpFlags, Dpif.families[FLOW].id)
-	//req.PutGenlMsghdr(OVS_FLOW_CMD_GET, OVS_FLOW_VERSION)
-	//req.putOvsHeader(dp.Ifindex)
-	//
+func (dp DatapathHandle) FollowFlows() (<-chan FlowInfo, func(), error) {
+	var closing bool
 	//TODO: check if we can send filter to the message (eg only tunnels)
-	//consumer := func(resp *NlMsgParser) (bool, error) {
-	//	fmt.Println("consumer")
-	//	attrs, err := dp.parseFlowMsg(resp, OVS_FLOW_CMD_GET)
-	//	if err != nil {
-	//		return true, err
-	//	}
-	//
-	//	fi, err := parseFlowInfo(attrs)
-	//	if err != nil {
-	//		return true, err
-	//	}
-	//
-	//	res <- fi
-	//	return false, nil
-	//}
 
-	//fmt.Println("before sockopt")
-	//
-	//if err := syscall.SetsockoptInt(dpif.sock.fd, syscall.SOL_SOCKET, syscall.SO_RCVBUFFORCE, 131072); err != nil {
-	//	// and if that doesn't work fall back to the ordinary SO_RCVBUF
-	//	if err := syscall.SetsockoptInt(dpif.sock.fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, 131072); err != nil {
-	//		fmt.Println("error set buffer")
-	//		return res, err
-	//	}
-	//}
-	//
-	//fmt.Println("after sockopt")
-
-	consumer := func(resp *NlMsgParser) (bool, error) {
-		fmt.Println("consumer")
-		attrs, err := dp.parseFlowMsg(resp, OVS_FLOW_CMD_NEW)
-		if err != nil {
-			fmt.Println("err in parseFlowMsg")
-			return true, nil
-
-			//return true, err
-		}
-
-		fi, err := parseFlowInfo(attrs)
-		if err != nil {
-			fmt.Println("err in parseFlowInfo")
-			return true, nil
-		}
-
-		fmt.Println("blah")
-
-		res <- fi
-		return false, nil
+	stop := func() {
+		closing = true
 	}
 
-	//loop:
-	for {
-		//rb := make([]byte, 2*syscall.Getpagesize())
-		fmt.Println("before recvfrom")
-		//nr, _, err := syscall.Recvfrom(dpif.sock.fd, rb, 0)
+	res := make(chan FlowInfo, 1)
 
-		err := dpif.sock.Receive(consumer)
-		//	func(msg *NlMsgParser) (bool, error) {
-		//	fmt.Println("got data")
-		//	err := msg.checkHeader()
-		//	if err == nil {
-		//		fmt.Println("ok")
-		//
-		//		return false, nil
-		//	}
-		//	fmt.Println("err")
-		//
-		//	return false, nil
-		//})
-
-		if err != nil {
-			fmt.Println("err in recv")
-
-			//	break
+	go func() {
+		if err := dp.readMsgs(dp.Dpif.sock, func(fi FlowInfo) {
+			res <- fi
+		}); err != nil && !closing {
+			panic(err)
 		}
+	}()
 
+	return res, stop, nil
+
+}
+
+func (dp DatapathHandle) readMsgs(s *NetlinkSocket, cb func(fi FlowInfo)) error {
+
+	rb := make([]byte, 2*syscall.Getpagesize())
+loop:
+	for {
+		nr, _, err := syscall.Recvfrom(s.fd, rb, 0)
 		if err == syscall.ENOBUFS {
 			// ENOBUF means we miss some events here. No way around it. That's life.
-			fmt.Println("ENOBUFS")
-			//fmt.Println(nr)
+			//cb(FlowInfo{Err: syscall.ENOBUFS})
 			continue
 		} else if err != nil {
-			fmt.Println(err)
 			return err
 		}
+
+		msgs, err := syscall.ParseNetlinkMessage(rb[:nr])
+		if err != nil {
+			return err
+		}
+		for _, msg := range msgs {
+			if msg.Header.Type == unix.NLMSG_ERROR {
+				return errors.New("NLMSG_ERROR")
+			}
+			if msg.Header.Type == unix.NLMSG_DONE {
+				break loop
+			}
+
+			//fmt.Println(msg.Header.Type)
+			//fmt.Println(os.Getpid())
+			//fmt.Println(s.addr.Pid)
+			//fmt.Println(fmt.Sprintf("%+v",msg.Header))
+			fmt.Println(nflnMsgType(msg.Header.Type))
+			//fmt.Println()
+			if nflnSubsysID(msg.Header.Type) != 0 {
+				return fmt.Errorf(
+					"unexpected subsys_id: %d\n",
+					nflnSubsysID(msg.Header.Type),
+				)
+			}
+
+			_, err := parsePayload(msg.Data[sizeofGenmsg:])
+			if err != nil {
+				return err
+			}
+
+			//
+			//// Taken from conntrack/parse.c:__parse_message_type
+			//switch CntlMsgTypes(nflnMsgType(msg.Header.Type)) {
+			//case IpctnlMsgCtNew:
+			//	conn.MsgType = NfctMsgUpdate
+			//	if msg.Header.Flags&(syscall.NLM_F_CREATE|syscall.NLM_F_EXCL) > 0 {
+			//		conn.MsgType = NfctMsgNew
+			//	}
+			//case IpctnlMsgCtDelete:
+			//	conn.MsgType = NfctMsgDestroy
+			//}
+
+			//cb(fi)
+		}
 	}
-
-	fmt.Println("after loop ")
-	//err := Dpif.sock.Receive(consumer)
-	//fmt.Println("after receive")
-	//if err != nil {
-	//	return nil, err
-	//}
-
 	return nil
+}
+func parsePayload(payload []byte) (*FlowInfo, error) {
+	// Most of this comes from libnetfilter_conntrack/src/conntrack/parse_mnl.c
+	flow := &FlowInfo{}
+	var attrSpace [16]NetlinkAttr
+	attrs, err := parseAttrs(payload, attrSpace[0:0])
+	if err != nil {
+		return flow, err
+	}
+	for _, attr := range attrs {
+		switch attr.Typ {
+		case OVS_FLOW_ATTR_ACTIONS:
+			parseAction(attr.Msg)
+		}
+	}
+	return flow, nil
+}
+
+func parseAction(b []byte) ([]NetlinkAttr, error) {
+	var attrSpace [16]NetlinkAttr
+	attrs, err := parseAttrs(b, attrSpace[0:0])
+	if err != nil {
+		return []NetlinkAttr{}, fmt.Errorf("invalid action attr: %s", err)
+	}
+	for _, attr := range attrs {
+		// fmt.Printf("pl: %d, type: %d, multi: %t, bigend: %t\n", len(attr.Msg), attr.Typ, attr.IsNested, attr.IsNetByteorder)
+		switch attr.Typ {
+		case OVS_ACTION_ATTR_OUTPUT:
+			fmt.Println("output") // parseOutputAction,
+		case OVS_ACTION_ATTR_SET:
+			fmt.Println("set") //parseSetAction,
+		}
+	}
+	return []NetlinkAttr{}, nil
 }
