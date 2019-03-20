@@ -26,6 +26,10 @@ type Dpif struct {
 	families [FAMILY_COUNT]GenlFamily
 }
 
+func (dpif *Dpif) Families() [FAMILY_COUNT]GenlFamily {
+	return dpif.families
+}
+
 type familyUnavailableError struct {
 	family string
 }

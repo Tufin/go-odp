@@ -10,6 +10,14 @@ type GenlFamily struct {
 	mcGroups map[string]uint32
 }
 
+func (g GenlFamily) McGroups() map[string]uint32 {
+	return g.mcGroups
+}
+
+func (g GenlFamily) Id() uint16 {
+	return g.id
+}
+
 func (nlmsg *NlMsgBuilder) PutGenlMsghdr(cmd uint8, version uint8) *GenlMsghdr {
 	pos := nlmsg.AlignGrow(syscall.NLMSG_ALIGNTO, SizeofGenlMsghdr)
 	res := genlMsghdrAt(nlmsg.buf, pos)
@@ -25,6 +33,7 @@ func (nlmsg *NlMsgParser) CheckGenlMsghdr(cmd int, fallbackCmd int) (*GenlMsghdr
 	}
 
 	gh := genlMsghdrAt(nlmsg.data, pos)
+	fmt.Println("Got Command: ", gh.Cmd)
 	if cmd >= 0 && gh.Cmd != uint8(cmd) && (fallbackCmd < 0 || gh.Cmd != uint8(fallbackCmd)) {
 		return nil, fmt.Errorf("generic netlink response has wrong cmd (got %d, expected %d (or fallback: %d))",
 			gh.Cmd, cmd, fallbackCmd)

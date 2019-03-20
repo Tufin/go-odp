@@ -452,6 +452,14 @@ func listDatapaths(f Flags) bool {
 	dps, err := dpif.EnumerateDatapaths()
 	for name, dp := range dps {
 		fmt.Printf("%d: %s\n", dp.ID(), name)
+
+		for _, family := range dp.Dpif.Families() {
+			fmt.Printf("\tID: %d:\n", family.Id())
+
+			for name, group := range family.McGroups() {
+				fmt.Printf("\t\t%s: %d\n", name, group)
+			}
+		}
 	}
 
 	return true
@@ -1121,34 +1129,38 @@ func listFlows(f Flags) bool {
 	//dpname2 := "ovs-system"
 
 	fmt.Println("follow")
-	flows2, err := dp2.FollowFlows()
+	res := make(chan odp.FlowInfo)
+	go func() {
+
+		for flow2 := range res {
+
+			os.Stdout.WriteString(dpname2)
+			err = printFlowKeys(flow2.FlowKeys, *dp)
+			if err != nil {
+				printErr("%s", err)
+			}
+
+			err = printFlowActions(flow2.Actions, *dp)
+			if err != nil {
+				printErr("%s", err)
+			}
+
+			if showStats {
+				fmt.Printf(": %d packets, %d bytes, used %d",
+					flow2.Packets, flow2.Bytes, flow2.Used)
+			}
+
+			os.Stdout.WriteString("\n")
+		}
+	}()
+
+	err = dp2.FollowFlows(res)
 	if err != nil {
 		return false
 
 	}
 
 	fmt.Println("here1")
-	for flow2 := range flows2 {
-
-		os.Stdout.WriteString(dpname2)
-		err = printFlowKeys(flow2.FlowKeys, *dp)
-		if err != nil {
-			return printErr("%s", err)
-		}
-
-		err = printFlowActions(flow2.Actions, *dp)
-		if err != nil {
-			return printErr("%s", err)
-		}
-
-		if showStats {
-			fmt.Printf(": %d packets, %d bytes, used %d",
-				flow2.Packets, flow2.Bytes, flow2.Used)
-		}
-
-		os.Stdout.WriteString("\n")
-
-	}
 
 	return true
 }

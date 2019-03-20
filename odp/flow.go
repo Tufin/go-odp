@@ -1400,9 +1400,8 @@ func (dp DatapathHandle) EnumerateFlows() ([]FlowInfo, error) {
 	return res, nil
 }
 
-func (dp DatapathHandle) FollowFlows() (chan FlowInfo, error) {
+func (dp DatapathHandle) FollowFlows(res chan FlowInfo) error {
 	dpif := dp.Dpif
-	res := make(chan FlowInfo)
 
 	//req := NewNlMsgBuilder(DumpFlags, Dpif.families[FLOW].id)
 	//req.PutGenlMsghdr(OVS_FLOW_CMD_GET, OVS_FLOW_VERSION)
@@ -1425,30 +1424,74 @@ func (dp DatapathHandle) FollowFlows() (chan FlowInfo, error) {
 	//	return false, nil
 	//}
 
-	fmt.Println("before sockopt")
+	//fmt.Println("before sockopt")
+	//
+	//if err := syscall.SetsockoptInt(dpif.sock.fd, syscall.SOL_SOCKET, syscall.SO_RCVBUFFORCE, 131072); err != nil {
+	//	// and if that doesn't work fall back to the ordinary SO_RCVBUF
+	//	if err := syscall.SetsockoptInt(dpif.sock.fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, 131072); err != nil {
+	//		fmt.Println("error set buffer")
+	//		return res, err
+	//	}
+	//}
+	//
+	//fmt.Println("after sockopt")
 
-	if err := syscall.SetsockoptInt(dpif.sock.fd, syscall.SOL_SOCKET, syscall.SO_RCVBUFFORCE, 131072); err != nil {
-		// and if that doesn't work fall back to the ordinary SO_RCVBUF
-		if err := syscall.SetsockoptInt(dpif.sock.fd, syscall.SOL_SOCKET, syscall.SO_RCVBUF, 131072); err != nil {
-			fmt.Println("error set buffer")
-			return res, err
+	consumer := func(resp *NlMsgParser) (bool, error) {
+		fmt.Println("consumer")
+		attrs, err := dp.parseFlowMsg(resp, OVS_FLOW_CMD_NEW)
+		if err != nil {
+			fmt.Println("err in parseFlowMsg")
+			return true, nil
+
+			//return true, err
 		}
+
+		fi, err := parseFlowInfo(attrs)
+		if err != nil {
+			fmt.Println("err in parseFlowInfo")
+			return true, nil
+		}
+
+		fmt.Println("blah")
+
+		res <- fi
+		return false, nil
 	}
 
-	fmt.Println("after sockopt")
 	//loop:
 	for {
-		rb := make([]byte, 2*syscall.Getpagesize())
+		//rb := make([]byte, 2*syscall.Getpagesize())
 		fmt.Println("before recvfrom")
-		nr, _, err := syscall.Recvfrom(dpif.sock.fd, rb, 0)
+		//nr, _, err := syscall.Recvfrom(dpif.sock.fd, rb, 0)
+
+		err := dpif.sock.Receive(consumer)
+		//	func(msg *NlMsgParser) (bool, error) {
+		//	fmt.Println("got data")
+		//	err := msg.checkHeader()
+		//	if err == nil {
+		//		fmt.Println("ok")
+		//
+		//		return false, nil
+		//	}
+		//	fmt.Println("err")
+		//
+		//	return false, nil
+		//})
+
+		if err != nil {
+			fmt.Println("err in recv")
+
+			//	break
+		}
+
 		if err == syscall.ENOBUFS {
 			// ENOBUF means we miss some events here. No way around it. That's life.
 			fmt.Println("ENOBUFS")
-			fmt.Println(nr)
+			//fmt.Println(nr)
 			continue
 		} else if err != nil {
 			fmt.Println(err)
-			return res, err
+			return err
 		}
 	}
 
@@ -1459,5 +1502,5 @@ func (dp DatapathHandle) FollowFlows() (chan FlowInfo, error) {
 	//	return nil, err
 	//}
 
-	return res, nil
+	return nil
 }
