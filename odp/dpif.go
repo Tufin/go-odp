@@ -116,33 +116,19 @@ func NewDpifGroups(groups uint32) (*Dpif, error) {
 	return dpif, nil
 }
 
-func NewDpif2() (*Dpif, error) {
-	sock, err := OpenNetlinkSocket2(syscall.NETLINK_GENERIC)
-	if err != nil {
-		return nil, err
-	}
-
-	dpif := &Dpif{sock: sock}
-
-	for i := 0; i < FAMILY_COUNT; i++ {
-		dpif.families[i], err = lookupFamily(sock, familyNames[i])
-		if err != nil {
-			sock.Close()
-			return nil, err
-		}
-	}
-
-	return dpif, nil
-}
-
 // Open a Dpif with a new socket, but reuing the family info
-func (dpif *Dpif) Reopen() (*Dpif, error) {
-	sock, err := OpenNetlinkSocket(syscall.NETLINK_GENERIC)
+func (dpif *Dpif) ReopenGroups(groups uint32) (*Dpif, error) {
+	sock, err := OpenNetlinkSocketGroups(syscall.NETLINK_GENERIC, groups)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Dpif{sock: sock, families: dpif.families}, nil
+}
+
+// Open a Dpif with a new socket, but reuing the family info
+func (dpif *Dpif) Reopen() (*Dpif, error) {
+	return dpif.ReopenGroups(0)
 }
 
 func (dpif *Dpif) getMCGroup(family int, name string) (uint32, error) {

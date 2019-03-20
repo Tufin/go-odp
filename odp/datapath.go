@@ -39,7 +39,11 @@ func (dp DatapathHandle) ID() DatapathID {
 }
 
 func (dp DatapathHandle) Reopen() (DatapathHandle, error) {
-	dpif, err := dp.Dpif.Reopen()
+	return dp.ReopenGroups(0)
+}
+
+func (dp DatapathHandle) ReopenGroups(groups uint32) (DatapathHandle, error) {
+	dpif, err := dp.Dpif.ReopenGroups(groups)
 	return DatapathHandle{Dpif: dpif, Ifindex: dp.Ifindex}, err
 }
 

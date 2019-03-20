@@ -1113,20 +1113,17 @@ func listFlows(f Flags) bool {
 	}
 
 	fmt.Println("before follow")
-	dpif2, err := odp.NewDpif2()
+	dpif2, err := odp.NewDpifGroups(0x3ffff)
 	if err != nil {
 		fmt.Println(err)
 		return false
 	}
 	defer dpif2.Close()
-	//
+
 	dp2, dpname2 := lookupDatapath(dpif2, args[0])
 	if dp == nil {
 		return false
 	}
-
-	//dp2 := odp.DatapathHandle{Dpif: dpif, Ifindex: dp.Ifindex}
-	//dpname2 := "ovs-system"
 
 	fmt.Println("follow")
 	res := make(chan odp.FlowInfo)
