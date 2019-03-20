@@ -94,7 +94,11 @@ func loadOpenvswitchModule() {
 }
 
 func NewDpif() (*Dpif, error) {
-	sock, err := OpenNetlinkSocket(syscall.NETLINK_GENERIC)
+	return NewDpifGroups(0)
+}
+
+func NewDpifGroups(groups uint32) (*Dpif, error) {
+	sock, err := OpenNetlinkSocketGroups(syscall.NETLINK_GENERIC, groups)
 	if err != nil {
 		return nil, err
 	}

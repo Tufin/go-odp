@@ -17,7 +17,7 @@ type NetlinkSocket struct {
 	buf  []byte
 }
 
-func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
+func OpenNetlinkSocketGroups(protocol int, groups uint32) (*NetlinkSocket, error) {
 	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_RAW, protocol)
 	if err != nil {
 		return nil, err
@@ -39,7 +39,7 @@ func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
 		return nil, err
 	}
 
-	addr := syscall.SockaddrNetlink{Family: syscall.AF_NETLINK}
+	addr := syscall.SockaddrNetlink{Family: syscall.AF_NETLINK, Groups: groups}
 	if err := syscall.Bind(fd, &addr); err != nil {
 		return nil, err
 	}
@@ -64,6 +64,10 @@ func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
 		// the limit that the OVS userspace imposes.
 		buf: make([]byte, 65536),
 	}, nil
+}
+
+func OpenNetlinkSocket(protocol int) (*NetlinkSocket, error) {
+	return OpenNetlinkSocketGroups(protocol, 0)
 }
 
 func OpenNetlinkSocket2(protocol int) (*NetlinkSocket, error) {
