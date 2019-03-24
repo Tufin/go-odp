@@ -201,6 +201,8 @@ const ( // ovs_action_attr
 	OVS_ACTION_ATTR_PUSH_VLAN = 4
 	OVS_ACTION_ATTR_POP_VLAN  = 5
 	OVS_ACTION_ATTR_SAMPLE    = 6
+	OVS_ACTION_ATTR_RECIRC    = 7
+	OVS_ACTION_ATTR_CT        = 12
 )
 
 const ( // ovs_packet_cmd

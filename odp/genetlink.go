@@ -33,7 +33,7 @@ func (nlmsg *NlMsgParser) CheckGenlMsghdr(cmd int, fallbackCmd int) (*GenlMsghdr
 	}
 
 	gh := genlMsghdrAt(nlmsg.data, pos)
-	fmt.Println("Got Command: ", gh.Cmd)
+	//fmt.Println("Got Command: ", gh.Cmd)
 	if cmd >= 0 && gh.Cmd != uint8(cmd) && (fallbackCmd < 0 || gh.Cmd != uint8(fallbackCmd)) {
 		return nil, fmt.Errorf("generic netlink response has wrong cmd (got %d, expected %d (or fallback: %d))",
 			gh.Cmd, cmd, fallbackCmd)

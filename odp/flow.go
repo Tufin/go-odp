@@ -1437,6 +1437,7 @@ loop:
 	for {
 		nr, _, err := syscall.Recvfrom(s.fd, rb, 0)
 		if err == syscall.ENOBUFS {
+			fmt.Println("ENOBUFS")
 			// ENOBUF means we miss some events here. No way around it. That's life.
 			//cb(FlowInfo{Err: syscall.ENOBUFS})
 			continue
@@ -1456,17 +1457,9 @@ loop:
 				break loop
 			}
 
-			//fmt.Println(msg.Header.Type)
-			//fmt.Println(os.Getpid())
-			//fmt.Println(s.addr.Pid)
-			//fmt.Println(fmt.Sprintf("%+v",msg.Header))
-			fmt.Println(nflnMsgType(msg.Header.Type))
-			//fmt.Println()
-			if nflnSubsysID(msg.Header.Type) != 0 {
-				return fmt.Errorf(
-					"unexpected subsys_id: %d\n",
-					nflnSubsysID(msg.Header.Type),
-				)
+			if nflnMsgType(msg.Header.Type) != uint8(dp.Dpif.families[FLOW].id) {
+				fmt.Println(fmt.Sprintf("unexpected message_type: %d\n", nflnMsgType(msg.Header.Type)))
+				continue
 			}
 
 			_, err := parsePayload(msg.Data[sizeofGenmsg:])
@@ -1491,6 +1484,7 @@ loop:
 	}
 	return nil
 }
+
 func parsePayload(payload []byte) (*FlowInfo, error) {
 	// Most of this comes from libnetfilter_conntrack/src/conntrack/parse_mnl.c
 	flow := &FlowInfo{}
@@ -1499,10 +1493,59 @@ func parsePayload(payload []byte) (*FlowInfo, error) {
 	if err != nil {
 		return flow, err
 	}
+
+	keyAttrs := []string{"OVS_KEY_ATTR_UNSPEC",
+		"OVS_KEY_ATTR_ENCAP",
+		"OVS_KEY_ATTR_PRIORITY",
+		"OVS_KEY_ATTR_IN_PORT",
+		"OVS_KEY_ATTR_ETHERNET",
+		"OVS_KEY_ATTR_VLAN",
+		"OVS_KEY_ATTR_ETHERTYPE",
+		"OVS_KEY_ATTR_IPV4",
+		"OVS_KEY_ATTR_IPV6",
+		"OVS_KEY_ATTR_TCP",
+		"OVS_KEY_ATTR_UDP",
+		"OVS_KEY_ATTR_ICMP",
+		"OVS_KEY_ATTR_ICMPV6",
+		"OVS_KEY_ATTR_ARP",
+		"OVS_KEY_ATTR_ND",
+		"OVS_KEY_ATTR_SKB_MARK",
+		"OVS_KEY_ATTR_TUNNEL",
+		"OVS_KEY_ATTR_SCTP",
+		"OVS_KEY_ATTR_TCP_FLAGS",
+		"OVS_KEY_ATTR_DP_HASH",
+		"OVS_KEY_ATTR_RECIRC_ID",
+		"OVS_KEY_ATTR_MPLS",
+		"OVS_KEY_ATTR_CT_STATE",
+		"OVS_KEY_ATTR_CT_ZONE",
+		"OVS_KEY_ATTR_CT_MARK",
+		"OVS_KEY_ATTR_CT_LABELS",
+		"OVS_KEY_ATTR_CT_ORIG_TUPLE_IPV4",
+		"OVS_KEY_ATTR_CT_ORIG_TUPLE_IPV6",
+		"OVS_KEY_ATTR_NSH",
+	}
+
 	for _, attr := range attrs {
 		switch attr.Typ {
 		case OVS_FLOW_ATTR_ACTIONS:
+			fmt.Println("action")
 			parseAction(attr.Msg)
+		case OVS_FLOW_ATTR_KEY:
+			var attrSpace3 [16]NetlinkAttr
+			keys, err := parseAttrs(attr.Msg, attrSpace3[0:0])
+			if err != nil {
+				return nil, err
+			}
+
+			for _, attrKey := range keys {
+				if len(keyAttrs) >= attrKey.Typ {
+					fmt.Println("key ", keyAttrs[attrKey.Typ])
+				} else {
+					fmt.Println(attrKey.Typ)
+				}
+
+			}
+
 		}
 	}
 	return flow, nil
@@ -1515,12 +1558,51 @@ func parseAction(b []byte) ([]NetlinkAttr, error) {
 		return []NetlinkAttr{}, fmt.Errorf("invalid action attr: %s", err)
 	}
 	for _, attr := range attrs {
-		// fmt.Printf("pl: %d, type: %d, multi: %t, bigend: %t\n", len(attr.Msg), attr.Typ, attr.IsNested, attr.IsNetByteorder)
 		switch attr.Typ {
 		case OVS_ACTION_ATTR_OUTPUT:
 			fmt.Println("output") // parseOutputAction,
 		case OVS_ACTION_ATTR_SET:
-			fmt.Println("set") //parseSetAction,
+			fmt.Println("set")
+
+			var attrSpace2 [16]NetlinkAttr
+			setTunnelAttrs, err := parseAttrs(attr.Msg, attrSpace2[0:0])
+			//setAction, err := parseSetAction(OVS_ACTION_ATTR_SET, attr.Msg)
+			if err != nil {
+				fmt.Println(err)
+				return []NetlinkAttr{}, nil
+			}
+
+			for _, setTunnelAttr := range setTunnelAttrs {
+				fmt.Println(setTunnelAttr.Typ)
+
+				switch setTunnelAttr.Typ {
+				case OVS_KEY_ATTR_TUNNEL:
+					fmt.Println("attribute tunnel")
+					var attrSpace3 [16]NetlinkAttr
+					tunnelAttributes, err := parseAttrs(setTunnelAttr.Msg, attrSpace3[0:0])
+					if err != nil {
+						fmt.Println(err)
+						return []NetlinkAttr{}, err
+					}
+
+					fmt.Println("types")
+					for _, tunAttr := range tunnelAttributes {
+						fmt.Println(tunAttr.Typ)
+					}
+
+				default:
+					fmt.Println(setTunnelAttr.Typ)
+				}
+
+			}
+
+		case OVS_ACTION_ATTR_RECIRC:
+
+			fmt.Println("recirc")
+		case OVS_ACTION_ATTR_CT:
+			fmt.Println("ct")
+		default:
+			fmt.Println("unknkown ", attr.Typ)
 		}
 	}
 	return []NetlinkAttr{}, nil

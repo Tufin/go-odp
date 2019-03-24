@@ -14,6 +14,7 @@ import (
 	"unsafe"
 
 	"github.com/tufin/go-odp/odp"
+	"os/signal"
 )
 
 func printErr(f string, a ...interface{}) bool {
@@ -1126,10 +1127,17 @@ func listFlows(f Flags) bool {
 	}
 
 	fmt.Println("follow")
-	res := make(chan odp.FlowInfo)
+	//res := make(chan odp.FlowInfo)
+	res2, _, err := dp2.FollowFlows()
+	if err != nil {
+		return false
+
+	}
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt)
 	go func() {
 
-		for flow2 := range res {
+		for flow2 := range res2 {
 
 			os.Stdout.WriteString(dpname2)
 			err = printFlowKeys(flow2.FlowKeys, *dp)
@@ -1151,16 +1159,7 @@ func listFlows(f Flags) bool {
 		}
 	}()
 
-	res2, _, err := dp2.FollowFlows()
-	if err != nil {
-		return false
-
-	}
-
-	for f := range res2 {
-		fmt.Println(f)
-	}
-
+	<-stop
 	fmt.Println("here1")
 
 	return true
