@@ -1121,13 +1121,13 @@ func listFlows(f Flags) bool {
 	}
 	defer dpif2.Close()
 
-	dp2, dpname2 := lookupDatapath(dpif2, args[0])
+	dp2, _ := lookupDatapath(dpif2, args[0])
 	if dp == nil {
 		return false
 	}
 
 	fmt.Println("follow")
-	//res := make(chan odp.FlowInfo)
+
 	res2, _, err := dp2.FollowFlows()
 	if err != nil {
 		return false
@@ -1136,26 +1136,8 @@ func listFlows(f Flags) bool {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
 	go func() {
-
 		for flow2 := range res2 {
-
-			os.Stdout.WriteString(dpname2)
-			err = printFlowKeys(flow2.FlowKeys, *dp)
-			if err != nil {
-				printErr("%s", err)
-			}
-
-			err = printFlowActions(flow2.Actions, *dp)
-			if err != nil {
-				printErr("%s", err)
-			}
-
-			if showStats {
-				fmt.Printf(": %d packets, %d bytes, used %d",
-					flow2.Packets, flow2.Bytes, flow2.Used)
-			}
-
-			os.Stdout.WriteString("\n")
+			fmt.Println(fmt.Sprintf("%+v", flow2))
 		}
 	}()
 

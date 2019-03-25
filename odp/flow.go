@@ -11,8 +11,26 @@ import (
 	"syscall"
 	"unsafe"
 
+	"encoding/binary"
+
 	"golang.org/x/sys/unix"
 )
+
+var nativeEndian binary.ByteOrder
+
+func init() {
+	buf := [2]byte{}
+	*(*uint16)(unsafe.Pointer(&buf[0])) = uint16(0xABCD)
+
+	switch buf {
+	case [2]byte{0xCD, 0xAB}:
+		nativeEndian = binary.LittleEndian
+	case [2]byte{0xAB, 0xCD}:
+		nativeEndian = binary.BigEndian
+	default:
+		panic("Could not determine native endianness.")
+	}
+}
 
 const (
 	sizeofGenmsg = uint32(unsafe.Sizeof(unix.Nfgenmsg{}))
@@ -299,8 +317,8 @@ func (key BlobFlowKey) Ignored() bool {
 // inheritance.  We want to have an Equals method for BlobFlowKeys,
 // that works even when BlobFlowKeys are embedded as anonymous struct
 // fields.  But we can't use a straightforward type assertion to tell
-// if another FlowKey is also a BlobFlowKey, because in the embedded
-// case, it will say that the FlowKey is not an BlobFlowKey (the "has
+// if another OvsFlowKey is also a BlobFlowKey, because in the embedded
+// case, it will say that the OvsFlowKey is not an BlobFlowKey (the "has
 // an anonymoys field of X" is not an "is a X" relation).  To work
 // around this, we use an interface, implemented by BlobFlowKey, that
 // automatically gets promoted to all structs that embed BlobFlowKey.
@@ -1408,7 +1426,7 @@ func (dp DatapathHandle) EnumerateFlows() ([]FlowInfo, error) {
 	return res, nil
 }
 
-func (dp DatapathHandle) FollowFlows() (<-chan FlowInfo, func(), error) {
+func (dp DatapathHandle) FollowFlows() (<-chan *OvsFlowInfo, func(), error) {
 	var closing bool
 	//TODO: check if we can send filter to the message (eg only tunnels)
 
@@ -1416,10 +1434,10 @@ func (dp DatapathHandle) FollowFlows() (<-chan FlowInfo, func(), error) {
 		closing = true
 	}
 
-	res := make(chan FlowInfo, 1)
+	res := make(chan *OvsFlowInfo, 1)
 
 	go func() {
-		if err := dp.readMsgs(dp.Dpif.sock, func(fi FlowInfo) {
+		if err := dp.readMsgs(dp.Dpif.sock, func(fi *OvsFlowInfo) {
 			res <- fi
 		}); err != nil && !closing {
 			panic(err)
@@ -1430,7 +1448,7 @@ func (dp DatapathHandle) FollowFlows() (<-chan FlowInfo, func(), error) {
 
 }
 
-func (dp DatapathHandle) readMsgs(s *NetlinkSocket, cb func(fi FlowInfo)) error {
+func (dp DatapathHandle) readMsgs(s *NetlinkSocket, cb func(fi *OvsFlowInfo)) error {
 
 	rb := make([]byte, 2*syscall.Getpagesize())
 loop:
@@ -1462,10 +1480,12 @@ loop:
 				continue
 			}
 
-			_, err := parsePayload(msg.Data[sizeofGenmsg:])
+			flowInfo, err := parsePayload(msg.Data[sizeofGenmsg:])
 			if err != nil {
 				return err
 			}
+
+			cb(flowInfo)
 
 			//
 			//// Taken from conntrack/parse.c:__parse_message_type
@@ -1485,77 +1505,123 @@ loop:
 	return nil
 }
 
-func parsePayload(payload []byte) (*FlowInfo, error) {
+func parsePayload(payload []byte) (*OvsFlowInfo, error) {
 	// Most of this comes from libnetfilter_conntrack/src/conntrack/parse_mnl.c
-	flow := &FlowInfo{}
+	flow := &OvsFlowInfo{}
 	var attrSpace [16]NetlinkAttr
 	attrs, err := parseAttrs(payload, attrSpace[0:0])
 	if err != nil {
 		return flow, err
 	}
-
-	keyAttrs := []string{"OVS_KEY_ATTR_UNSPEC",
-		"OVS_KEY_ATTR_ENCAP",
-		"OVS_KEY_ATTR_PRIORITY",
-		"OVS_KEY_ATTR_IN_PORT",
-		"OVS_KEY_ATTR_ETHERNET",
-		"OVS_KEY_ATTR_VLAN",
-		"OVS_KEY_ATTR_ETHERTYPE",
-		"OVS_KEY_ATTR_IPV4",
-		"OVS_KEY_ATTR_IPV6",
-		"OVS_KEY_ATTR_TCP",
-		"OVS_KEY_ATTR_UDP",
-		"OVS_KEY_ATTR_ICMP",
-		"OVS_KEY_ATTR_ICMPV6",
-		"OVS_KEY_ATTR_ARP",
-		"OVS_KEY_ATTR_ND",
-		"OVS_KEY_ATTR_SKB_MARK",
-		"OVS_KEY_ATTR_TUNNEL",
-		"OVS_KEY_ATTR_SCTP",
-		"OVS_KEY_ATTR_TCP_FLAGS",
-		"OVS_KEY_ATTR_DP_HASH",
-		"OVS_KEY_ATTR_RECIRC_ID",
-		"OVS_KEY_ATTR_MPLS",
-		"OVS_KEY_ATTR_CT_STATE",
-		"OVS_KEY_ATTR_CT_ZONE",
-		"OVS_KEY_ATTR_CT_MARK",
-		"OVS_KEY_ATTR_CT_LABELS",
-		"OVS_KEY_ATTR_CT_ORIG_TUPLE_IPV4",
-		"OVS_KEY_ATTR_CT_ORIG_TUPLE_IPV6",
-		"OVS_KEY_ATTR_NSH",
-	}
-
 	for _, attr := range attrs {
 		switch attr.Typ {
 		case OVS_FLOW_ATTR_ACTIONS:
-			fmt.Println("action")
-			parseAction(attr.Msg)
+			flow.Actions, _ = parseActions(attr.Msg)
 		case OVS_FLOW_ATTR_KEY:
-			var attrSpace3 [16]NetlinkAttr
-			keys, err := parseAttrs(attr.Msg, attrSpace3[0:0])
-			if err != nil {
-				return nil, err
-			}
-
-			for _, attrKey := range keys {
-				if len(keyAttrs) >= attrKey.Typ {
-					fmt.Println("key ", keyAttrs[attrKey.Typ])
-				} else {
-					fmt.Println(attrKey.Typ)
-				}
-
-			}
-
+			flow.OvsFlowKeys, _ = parseFlowKeys(attr.Msg)
 		}
 	}
 	return flow, nil
 }
 
-func parseAction(b []byte) ([]NetlinkAttr, error) {
+func parseFlowKeys(flowKeysPayload []byte) (OvsFlowKeys, error) {
+
+	var res OvsFlowKeys
+
+	var attrSpace [16]NetlinkAttr
+	keys, err := parseAttrs(flowKeysPayload, attrSpace[0:0])
+	if err != nil {
+		return nil, err
+	}
+
+	for _, attrKey := range keys {
+		switch OvsKeyAttrType(attrKey.Typ) {
+		case OvsAttrUnspec:
+			res = append(res, OvsAttrUnspecFlowKey{})
+		case OvsAttrEncap:
+			res = append(res, OvsAttrEncapFlowKey{})
+		case OvsAttrPrio:
+			res = append(res, OvsAttrPrioFlowKey{})
+		case OvsAttrInPrt:
+			res = append(res, OvsAttrInPrtFlowKey{Port: *(*uint32)(unsafe.Pointer(&attrKey.Msg[0]))})
+		case OvsAttrEthernet:
+			res = append(res, OvsAttrEthernetFlowKey{})
+		case OvsAttrVlan:
+			res = append(res, OvsAttrVlanFlowKey{Id: binary.BigEndian.Uint16(attrKey.Msg)})
+		case OvsAttrEthertype:
+			res = append(res, OvsAttrEthertypeFlowKey{})
+		case OvsAttrIpv4:
+			ipv4fk := OvsAttrIpv4FlowKey{}
+			binary.Read(bytes.NewReader(attrKey.Msg), binary.BigEndian, &ipv4fk)
+			res = append(res, ipv4fk)
+		case OvsAttrIpv6:
+			ipv6fk := OvsAttrIpv6FlowKey{}
+			binary.Read(bytes.NewReader(attrKey.Msg), binary.BigEndian, &ipv6fk)
+			res = append(res, ipv6fk)
+		case OvsAttrTcp:
+			tcpfk := OvsAttrTcpFlowKey{}
+			binary.Read(bytes.NewReader(attrKey.Msg), binary.BigEndian, &tcpfk)
+			res = append(res, tcpfk)
+		case OvsAttrUdp:
+			udpfk := OvsAttrUdpFlowKey{}
+			binary.Read(bytes.NewReader(attrKey.Msg), binary.BigEndian, &udpfk)
+			res = append(res, udpfk)
+		case OvsAttrIcmp:
+			fmt.Println("OvsAttrIcmp")
+		case OvsAttrIcmpv6:
+			fmt.Println("OvsAttrIcmpv6")
+		case OvsAttrArp:
+			fmt.Println("OvsAttrArp")
+		case OvsAttrNd:
+			fmt.Println("OvsAttrNd")
+		case OvsAttrSkbMark:
+			fmt.Println("OvsAttrSkbMark")
+		case OvsAttrTunnel:
+			fmt.Println("OvsAttrTunnel")
+		case OvsAttrSctp:
+			fmt.Println("OvsAttrSctp")
+		case OvsAttrTcpFlags:
+			fmt.Println("OvsAttrTcpFlags")
+		case OvsAttrDpHash:
+			fmt.Println("OvsAttrDpHash")
+		case OvsAttrRecircId:
+			fmt.Println("OvsAttrRecircId")
+		case OvsAttrMpls:
+			fmt.Println("OvsAttrMpls")
+		case OvsAttrCtState:
+			ctfk := OvsAttrCtStateFlowKey{CtState: *(*uint32)(unsafe.Pointer(&attrKey.Msg[0]))}
+			res = append(res, ctfk)
+		case OvsAttrCtZone:
+			ctzonefk := OvsAttrCtZoneFlowKey{Zone: *(*uint16)(unsafe.Pointer(&attrKey.Msg[0]))}
+			res = append(res, ctzonefk)
+		case OvsAttrCtMark:
+			ctmarkfk := OvsAttrCtMarkFlowKey{Mark: *(*uint32)(unsafe.Pointer(&attrKey.Msg[0]))}
+			res = append(res, ctmarkfk)
+		case OvsAttrCtLabels:
+			ctmarkfk := OvsAttrCtLabelsFlowKey{}
+			copy(ctmarkfk.Labels[:], attrKey.Msg)
+			res = append(res, ctmarkfk)
+		case OvsAttrCtOrigTupleIpv4:
+			tupIpv4 := OvsAttrCtOrigTupleIpv4FlowKey{}
+			binary.Read(bytes.NewReader(attrKey.Msg), binary.BigEndian, &tupIpv4)
+			res = append(res, tupIpv4)
+		case OvsAttrCtOrigTupleIpv6:
+			tupIpv6 := OvsAttrCtOrigTupleIpv6FlowKey{}
+			binary.Read(bytes.NewReader(attrKey.Msg), binary.BigEndian, &tupIpv6)
+			res = append(res, tupIpv6)
+		}
+	}
+
+	return res, nil
+}
+
+func parseActions(b []byte) ([]OvsAction, error) {
+	var res []OvsAction
+
 	var attrSpace [16]NetlinkAttr
 	attrs, err := parseAttrs(b, attrSpace[0:0])
 	if err != nil {
-		return []NetlinkAttr{}, fmt.Errorf("invalid action attr: %s", err)
+		return []OvsAction{}, fmt.Errorf("invalid action attr: %s", err)
 	}
 	for _, attr := range attrs {
 		switch attr.Typ {
@@ -1563,38 +1629,11 @@ func parseAction(b []byte) ([]NetlinkAttr, error) {
 			fmt.Println("output") // parseOutputAction,
 		case OVS_ACTION_ATTR_SET:
 			fmt.Println("set")
-
-			var attrSpace2 [16]NetlinkAttr
-			setTunnelAttrs, err := parseAttrs(attr.Msg, attrSpace2[0:0])
-			//setAction, err := parseSetAction(OVS_ACTION_ATTR_SET, attr.Msg)
+			ovsSetAttributeAction, err := parseOvsSetAction(attr.Msg)
 			if err != nil {
-				fmt.Println(err)
-				return []NetlinkAttr{}, nil
+				return []OvsAction{}, err
 			}
-
-			for _, setTunnelAttr := range setTunnelAttrs {
-				fmt.Println(setTunnelAttr.Typ)
-
-				switch setTunnelAttr.Typ {
-				case OVS_KEY_ATTR_TUNNEL:
-					fmt.Println("attribute tunnel")
-					var attrSpace3 [16]NetlinkAttr
-					tunnelAttributes, err := parseAttrs(setTunnelAttr.Msg, attrSpace3[0:0])
-					if err != nil {
-						fmt.Println(err)
-						return []NetlinkAttr{}, err
-					}
-
-					fmt.Println("types")
-					for _, tunAttr := range tunnelAttributes {
-						fmt.Println(tunAttr.Typ)
-					}
-
-				default:
-					fmt.Println(setTunnelAttr.Typ)
-				}
-
-			}
+			res = append(res, ovsSetAttributeAction)
 
 		case OVS_ACTION_ATTR_RECIRC:
 
@@ -1605,5 +1644,128 @@ func parseAction(b []byte) ([]NetlinkAttr, error) {
 			fmt.Println("unknkown ", attr.Typ)
 		}
 	}
-	return []NetlinkAttr{}, nil
+	return res, nil
+}
+
+func parseOvsSetAction(payload []byte) ([]OvsAction, error) {
+
+	var res []OvsAction
+	var attrSpace [16]NetlinkAttr
+	setAttrs, err := parseAttrs(payload, attrSpace[0:0])
+	//setAction, err := parseSetAction(OVS_ACTION_ATTR_SET, attr.Msg)
+	if err != nil {
+		fmt.Println(err)
+		return []OvsAction{}, nil
+	}
+
+	// openvswitch.h says "OVS_ACTION_ATTR_SET: Replaces the
+	// contents of an existing header.  The single nested
+	// OVS_KEY_ATTR_* attribute specifies a header to modify and
+	// its value.".  So we only expect single nested attr.
+	//
+	// But, a kernel bug in 4.3 (fixed by kernel commit
+	// e905eabc90a5b7) means that OVS_KEY_ATTR_TUNNEL gets
+	// incorrectly encoded, so that the nested attributes directly
+	// contain the OVS_TUNNEL_KEY_ATTR attributes.  But we can
+	// detect the consequences of that bug: tunnel attributes must
+	// contain either OVS_TUNNEL_KEY_ATTR_IPV4_DST or
+	// OVS_TUNNEL_KEY_ATTR_IPV4_SRC, and the sizes of those
+	// attributes differ from the corresponding OVS_KEY_ATTR
+	// attributes.
+
+	//TODO: Handle this edge case
+	//if adata := attrs[OVS_TUNNEL_KEY_ATTR_IPV4_DST]; len(adata) == 4 {
+	//	// Not an OVS_KEY_ATTR_PRIORITY, this is the 4.3 bug.
+	//	return makeSetTunnelAction(parseTunnelAttrs(attrs))
+	//}
+	//
+	//if adata := attrs[OVS_TUNNEL_KEY_ATTR_IPV6_DST]; len(adata) == 16 {
+	//	// Not an OVS_KEY_ATTR_ARP, this is the 4.3 bug.
+	//	return makeSetTunnelAction(parseTunnelAttrs(attrs))
+	//}
+	//
+	for _, setAttr := range setAttrs {
+		switch setAttr.Typ {
+		case OVS_KEY_ATTR_TUNNEL:
+			setTunnel, err := parseOvsSetTunnelAction(setAttr.Msg)
+			if err != nil {
+				return []OvsAction{}, err
+			}
+			res = append(res, setTunnel)
+		case OVS_TUNNEL_KEY_ATTR_IPV4_DST:
+			fmt.Println("OVS_TUNNEL_KEY_ATTR_IPV4_DST")
+		case OVS_TUNNEL_KEY_ATTR_IPV6_DST:
+			fmt.Println("OVS_TUNNEL_KEY_ATTR_IPV6_DST")
+		default:
+			fmt.Println("unknown set action ", setAttr.Typ)
+		}
+
+	}
+
+	return res, nil
+}
+
+func parseOvsSetTunnelAction(payload []byte) (OvsAction, error) {
+
+	var res OvsSetTunnelAction
+	var attrSpace [16]NetlinkAttr
+	tunnelAttrs, err := parseAttrs(payload, attrSpace[0:0])
+	if err != nil {
+		fmt.Println(err)
+		return OvsSetTunnelAction{}, err
+	}
+
+	for _, tunAttr := range tunnelAttrs {
+
+		switch OvsTunnelKeyAttrType(tunAttr.Typ) {
+
+		case OvsTunnelKeyAttrId:
+			res.Present.TunnelId = true
+			res.TunnelId = binary.BigEndian.Uint64(tunAttr.Msg)
+			fmt.Printf("TunnelId: %x\n", res.TunnelId)
+		case OvsTunnelKeyAttrIpv4Src:
+			res.Present.Ipv4Src = true
+			res.Ipv4Src = *(*uint32)(unsafe.Pointer(&tunAttr.Msg[0]))
+			fmt.Printf("Src IP: %s\n", ipv4ToString((*[4]byte)(unsafe.Pointer(&res.Ipv4Src))[:]))
+		case OvsTunnelKeyAttrIpv4Dst:
+			res.Present.Ipv4Dst = true
+			res.Ipv4Dst = *(*uint32)(unsafe.Pointer(&tunAttr.Msg[0]))
+			fmt.Printf("Dst IP: %s\n", ipv4ToString((*[4]byte)(unsafe.Pointer(&res.Ipv4Dst))[:]))
+		case OvsTunnelKeyAttrTos:
+			res.Present.Tos = true
+			res.Tos = tunAttr.Msg[0]
+		case OvsTunnelKeyAttrTtl:
+			res.Present.Ttl = true
+			res.Ttl = tunAttr.Msg[0]
+		case OvsTunnelKeyAttrDontFragment:
+			res.Df = true
+		case OvsTunnelKeyAttrCsum:
+			res.Csum = true
+		case OvsTunnelKeyAttrOam:
+			res.Oam = true
+		case OvsTunnelKeyAttrTpSrc:
+			res.Present.TpSrc = true
+			res.TpSrc = binary.BigEndian.Uint16(tunAttr.Msg)
+		case OvsTunnelKeyAttrTpDst:
+			res.Present.TpDst = true
+			res.TpDst = binary.BigEndian.Uint16(tunAttr.Msg)
+			fmt.Printf("Dst Port: %d\n", res.TpDst)
+		case OvsTunnelKeyAttrVxlanOpts:
+			fmt.Println("OvsTunnelKeyAttrVxlanOpts")
+		case OvsTunnelKeyAttrIpv6Src:
+			res.IPv6Src = tunAttr.Msg[0:16]
+		case OvsTunnelKeyAttrIpv6Dst:
+			res.IPv6Dst = tunAttr.Msg[0:16]
+		case OvsTunnelKeyAttrGeneveOpts:
+			fmt.Println("OvsTunnelKeyAttrGeneveOpts")
+		case OvsTunnelKeyAttrPad:
+			fmt.Println("OvsTunnelKeyAttrPad")
+		case OvsTunnelKeyAttrErspanOpts:
+			fmt.Println("OvsTunnelKeyAttrErspanOpts")
+		}
+
+	}
+
+	return res, nil
+
 }
