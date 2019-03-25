@@ -1113,7 +1113,6 @@ func listFlows(f Flags) bool {
 		os.Stdout.WriteString("\n")
 	}
 
-	fmt.Println("before follow")
 	dpif2, err := odp.NewDpifGroups(0x3ffff)
 	if err != nil {
 		fmt.Println(err)

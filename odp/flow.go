@@ -1626,9 +1626,7 @@ func parseActions(b []byte) ([]OvsAction, error) {
 	for _, attr := range attrs {
 		switch attr.Typ {
 		case OVS_ACTION_ATTR_OUTPUT:
-			fmt.Println("output") // parseOutputAction,
 		case OVS_ACTION_ATTR_SET:
-			fmt.Println("set")
 			ovsSetAttributeAction, err := parseOvsSetAction(attr.Msg)
 			if err != nil {
 				return []OvsAction{}, err
@@ -1636,23 +1634,77 @@ func parseActions(b []byte) ([]OvsAction, error) {
 			res = append(res, ovsSetAttributeAction)
 
 		case OVS_ACTION_ATTR_RECIRC:
-
-			fmt.Println("recirc")
 		case OVS_ACTION_ATTR_CT:
-			fmt.Println("ct")
+			ovsCtAction, err := parseOvsCtAction(attr.Msg)
+			if err != nil {
+				return []OvsAction{}, err
+			}
+			res = append(res, ovsCtAction)
 		default:
-			fmt.Println("unknkown ", attr.Typ)
 		}
 	}
 	return res, nil
 }
 
+func parseOvsCtAction(payload []byte) (OvsCtAction, error) {
+	var attrSpace [16]NetlinkAttr
+	attrs, err := parseAttrs(payload, attrSpace[0:0])
+	if err != nil {
+		return OvsCtAction{}, fmt.Errorf("invalid ovs ct action attr: %s", err)
+	}
+
+	var res OvsCtAction
+	for _, attr := range attrs {
+		switch OvsCtAttrType(attr.Typ) {
+
+		case OvsCtAttrTypeUnspec:
+			fmt.Println("Unspecified")
+		case OvsCtAttrTypeCommit:
+			fmt.Println("Commit")
+			res.Commit = true
+
+		case OvsCtAttrTypeZone:
+			fmt.Println("Zone")
+			res.Zone = *(*uint16)(unsafe.Pointer(&attr.Msg[0]))
+
+		case OvsCtAttrTypeMark:
+			fmt.Println("Mark")
+
+		case OvsCtAttrTypeLabels:
+			fmt.Println("Labels")
+
+		case OvsCtAttrTypeHelper:
+			fmt.Println("Helpers")
+
+		case OvsCtAttrTypeNat:
+			fmt.Println("NAT")
+
+		case OvsCtAttrTypeForceCommit:
+			fmt.Println("Force Commit")
+
+		case OvsCtAttrTypeEventMask:
+			res.EventMask = *(*uint32)(unsafe.Pointer(&attr.Msg[0]))
+
+			for flag := uint(0); flag < uint(Max); flag++ {
+				if res.EventMask&(1<<flag) != 0 {
+					fmt.Printf("%+v", IpConntrackEvents(flag))
+				}
+
+			}
+
+		default:
+			return OvsCtAction{}, fmt.Errorf("invalid ovs ct action attr: %s", err)
+		}
+	}
+
+	return res, nil
+}
+
 func parseOvsSetAction(payload []byte) ([]OvsAction, error) {
 
-	var res []OvsAction
 	var attrSpace [16]NetlinkAttr
 	setAttrs, err := parseAttrs(payload, attrSpace[0:0])
-	//setAction, err := parseSetAction(OVS_ACTION_ATTR_SET, attr.Msg)
+	//setAction, err := parseSetAction(OVS_ACTION_ATTR_SET, attr.payload)
 	if err != nil {
 		fmt.Println(err)
 		return []OvsAction{}, nil
@@ -1684,6 +1736,9 @@ func parseOvsSetAction(payload []byte) ([]OvsAction, error) {
 	//	return makeSetTunnelAction(parseTunnelAttrs(attrs))
 	//}
 	//
+
+	var res []OvsAction
+
 	for _, setAttr := range setAttrs {
 		switch setAttr.Typ {
 		case OVS_KEY_ATTR_TUNNEL:

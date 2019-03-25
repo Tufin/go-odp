@@ -60,6 +60,39 @@ const ( // ovs_tunnel_key_attr include/linux/openvswitch.h
 	OvsTunnelKeyAttrErspanOpts   OvsTunnelKeyAttrType = 15
 )
 
+type OvsCtAttrType uint32
+
+const (
+	OvsCtAttrTypeUnspec      OvsCtAttrType = iota
+	OvsCtAttrTypeCommit      OvsCtAttrType = iota
+	OvsCtAttrTypeZone        OvsCtAttrType = iota
+	OvsCtAttrTypeMark        OvsCtAttrType = iota
+	OvsCtAttrTypeLabels      OvsCtAttrType = iota
+	OvsCtAttrTypeHelper      OvsCtAttrType = iota
+	OvsCtAttrTypeNat         OvsCtAttrType = iota
+	OvsCtAttrTypeForceCommit OvsCtAttrType = iota
+	OvsCtAttrTypeEventMask   OvsCtAttrType = iota
+)
+
+/* Connection tracking event types */
+type IpConntrackEvents uint32
+
+const (
+	New       IpConntrackEvents = iota /* new conntrack */
+	Related   IpConntrackEvents = iota /* related conntrack */
+	Destroy   IpConntrackEvents = iota /* destroyed conntrack */
+	Reply     IpConntrackEvents = iota /* connection has seen two-way traffic */
+	Assured   IpConntrackEvents = iota /* connection status has changed to assured */
+	Protoinfo IpConntrackEvents = iota /* protocol information has changed */
+	Helper    IpConntrackEvents = iota /* new helper has been set */
+	Mark      IpConntrackEvents = iota /* new mark has been set */
+	Seqadj    IpConntrackEvents = iota /* sequence adjustment has changed */
+	Secmark   IpConntrackEvents = iota /* new security mark has been set */
+	Label     IpConntrackEvents = iota /* new connlabel has been set */
+	Synproxy  IpConntrackEvents = iota /* synproxy has been set */
+	Max       IpConntrackEvents = iota
+)
+
 type Tuple struct {
 	Proto   int
 	Src     net.IP
@@ -262,6 +295,14 @@ type OvsFlowSpec struct {
 }
 
 type OvsAction interface {
+}
+
+// ovs_ct_attr include/linux/openvswitch.h
+type OvsCtAction struct {
+	OvsAction
+	Commit    bool
+	Zone      uint16
+	EventMask uint32
 }
 
 type OvsSetTunnelAction struct {
