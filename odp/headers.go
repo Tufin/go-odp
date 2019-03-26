@@ -93,6 +93,20 @@ const (
 	Max       IpConntrackEvents = iota
 )
 
+type OvsCtState uint32
+
+const (
+	/* OVS_KEY_ATTR_CT_STATE flags */
+	OVS_CS_F_NEW         OvsCtState = 0x01 /* Beginning of a new connection. */
+	OVS_CS_F_ESTABLISHED OvsCtState = 0x02 /* Part of an existing connection. */
+	OVS_CS_F_RELATED     OvsCtState = 0x04 /* Related to an established connection. */
+	OVS_CS_F_REPLY_DIR   OvsCtState = 0x08 /* Flow is in the reply direction. */
+	OVS_CS_F_INVALID     OvsCtState = 0x10 /* Could not track connection. */
+	OVS_CS_F_TRACKED     OvsCtState = 0x20 /* Conntrack has occurred. */
+	OVS_CS_F_SRC_NAT     OvsCtState = 0x40 /* Packet's source address/port was mangled by NAT. */
+	OVS_CS_F_DST_NAT     OvsCtState = 0x80 /* Packet's destination address/port was mangled by NAT. */
+)
+
 type Tuple struct {
 	Proto   int
 	Src     net.IP

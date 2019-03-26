@@ -13,6 +13,10 @@ import (
 
 	"encoding/binary"
 
+	"io"
+	"os"
+	"strings"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -1468,7 +1472,18 @@ loop:
 			return err
 		}
 		for _, msg := range msgs {
-			fmt.Println("=========================================================================================")
+			old := os.Stdout // keep backup of the real stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+
+			outC := make(chan string)
+			// copy the output in a separate goroutine so printing can't block indefinitely
+			go func() {
+				var buf bytes.Buffer
+				io.Copy(&buf, r)
+				outC <- buf.String()
+			}()
+
 			if msg.Header.Type == unix.NLMSG_ERROR {
 				return errors.New("NLMSG_ERROR")
 			}
@@ -1481,12 +1496,61 @@ loop:
 				continue
 			}
 
-			flowInfo, err := parsePayload(msg.Data[sizeofGenmsg:])
+			type Pair struct {
+				value uint16
+				name  string
+			}
+
+			fmt.Println("Type: ", msg.Header.Type)
+			fmt.Println("Pid: ", msg.Header.Pid)
+			fmt.Println("Len: ", msg.Header.Len)
+			fmt.Println("Seq: ", msg.Header.Seq)
+			fmt.Println("Flags: ", msg.Header.Flags)
+
+			flags := []Pair{
+				{unix.NLM_F_REQUEST, "NLM_F_REQUEST"},
+				{unix.NLM_F_MULTI, "NLM_F_MULTI"},
+				{unix.NLM_F_ACK, "NLM_F_ACK"},
+				{unix.NLM_F_ECHO, "NLM_F_ECHO"},
+				{unix.NLM_F_DUMP_INTR, "NLM_F_DUMP_INTR"},
+				{unix.NLM_F_DUMP_FILTERED, "NLM_F_DUMP_FILTERED"},
+				{unix.NLM_F_REPLACE, "NLM_F_REPLACE"},
+				{unix.NLM_F_EXCL, "NLM_F_EXCL"},
+				{unix.NLM_F_CREATE, "NLM_F_CREATE"},
+				{unix.NLM_F_APPEND, "NLM_F_APPEND"},
+			}
+
+			first := true
+			for _, flag := range flags {
+				if (msg.Header.Flags & flag.value) != 0 {
+					if first {
+						first = false
+					} else {
+						fmt.Print(", ")
+					}
+					fmt.Println(flag.name)
+				}
+			}
+			fmt.Println()
+
+			_, err := parsePayload(msg.Data[sizeofGenmsg:])
 			if err != nil {
 				return err
 			}
 
-			cb(flowInfo)
+			//cb(flowInfo)
+			//fmt.Println(fmt.Sprintf("%+v", flowInfo))
+
+			// back to normal state
+			w.Close()
+			os.Stdout = old // restoring the real stdout
+			out := <-outC
+
+			if strings.Contains(out, "Tunnel") {
+				fmt.Println("=========================================================================================")
+				fmt.Println(out)
+				fmt.Println("=========================================================================================")
+			}
 
 			//
 			//// Taken from conntrack/parse.c:__parse_message_type
@@ -1521,7 +1585,7 @@ func parsePayload(payload []byte) (*OvsFlowInfo, error) {
 		case OVS_FLOW_ATTR_KEY:
 			flow.OvsFlowKeys, _ = parseFlowKeys(attr.Msg)
 		default:
-			fmt.Println("TL Attr: ", attr.Typ)
+			//fmt.Println("TL Attr: ", attr.Typ)
 		}
 	}
 	return flow, nil
@@ -1538,7 +1602,7 @@ func parseFlowKeys(flowKeysPayload []byte) (OvsFlowKeys, error) {
 	}
 
 	for _, attrKey := range keys {
-		fmt.Println("FlowKey: ", attrKey.Typ)
+		//fmt.Println("FlowKey: ", attrKey.Typ)
 		switch OvsKeyAttrType(attrKey.Typ) {
 		case OvsAttrUnspec:
 			res = append(res, OvsAttrUnspecFlowKey{})
@@ -1581,11 +1645,40 @@ func parseFlowKeys(flowKeysPayload []byte) (OvsFlowKeys, error) {
 		case OvsAttrSkbMark:
 			fmt.Println("OvsAttrSkbMark")
 		case OvsAttrTunnel:
-			fmt.Println("OvsAttrTunnel")
+			tunnel, _ := parseOvsSetTunnelAction(attrKey.Msg)
+			fmt.Println(fmt.Sprintf("Tunnel: %+v", tunnel))
+			res = append(res, tunnel)
 		case OvsAttrSctp:
 			fmt.Println("OvsAttrSctp")
 		case OvsAttrTcpFlags:
-			fmt.Println("OvsAttrTcpFlags: ", *(*uint16)(unsafe.Pointer(&attrKey.Msg)))
+
+			tcpFlags := binary.BigEndian.Uint16(attrKey.Msg)
+			flags := []string{
+				"FIN",
+				"SYN",
+				"RST",
+				"PSH",
+				"ACK",
+				"URG",
+				"ECE",
+				"CWR",
+				"NS",
+			}
+
+			first := true
+			for i := uint(0); i < 9; i++ {
+				if (tcpFlags & (1 << i)) != 0 {
+					if !first {
+						fmt.Print(", ")
+					}
+					fmt.Print(flags[i])
+					first = false
+				}
+			}
+			fmt.Println()
+
+			//fmt.Println("OvsAttrTcpFlags: ", *(*uint16)(unsafe.Pointer(&attrKey.Msg)))
+
 		case OvsAttrDpHash:
 			fmt.Println("OvsAttrDpHash")
 		case OvsAttrRecircId:
@@ -1593,8 +1686,29 @@ func parseFlowKeys(flowKeysPayload []byte) (OvsFlowKeys, error) {
 		case OvsAttrMpls:
 			fmt.Println("OvsAttrMpls")
 		case OvsAttrCtState:
+			flags := []string{"OVS_CS_F_NEW",
+				"OVS_CS_F_ESTABLISHED",
+				"OVS_CS_F_RELATED",
+				"OVS_CS_F_REPLY_DIR",
+				"OVS_CS_F_INVALID",
+				"OVS_CS_F_TRACKED",
+				"OVS_CS_F_SRC_NAT",
+				"OVS_CS_F_DST_NAT",
+			}
+
 			ctfk := OvsAttrCtStateFlowKey{CtState: *(*uint32)(unsafe.Pointer(&attrKey.Msg))}
 
+			first := true
+			for i := uint(0); i < 8; i++ {
+				if (ctfk.CtState & (1 << i)) != 0 {
+					if !first {
+						fmt.Print(", ")
+					}
+					fmt.Print(flags[i])
+					first = false
+				}
+			}
+			fmt.Println()
 			fmt.Println(fmt.Sprintf("CS: %x", ctfk.CtState))
 			res = append(res, ctfk)
 		case OvsAttrCtZone:
@@ -1630,7 +1744,7 @@ func parseActions(b []byte) ([]OvsAction, error) {
 		return []OvsAction{}, fmt.Errorf("invalid action attr: %s", err)
 	}
 	for _, attr := range attrs {
-		fmt.Println("Action: ", attr.Typ)
+		//fmt.Println("Action: ", attr.Typ)
 		switch attr.Typ {
 		case OVS_ACTION_ATTR_OUTPUT:
 		case OVS_ACTION_ATTR_SET:
@@ -1662,7 +1776,7 @@ func parseOvsCtAction(payload []byte) (OvsCtAction, error) {
 
 	var res OvsCtAction
 	for _, attr := range attrs {
-		fmt.Println("Type: ", attr.Typ)
+		//fmt.Println("Type: ", attr.Typ)
 		switch OvsCtAttrType(attr.Typ) {
 
 		case OvsCtAttrTypeUnspec:
@@ -1809,6 +1923,7 @@ func parseOvsSetTunnelAction(payload []byte) (OvsAction, error) {
 		case OvsTunnelKeyAttrTpSrc:
 			res.Present.TpSrc = true
 			res.TpSrc = binary.BigEndian.Uint16(tunAttr.Msg)
+			fmt.Printf("Src Port: %d\n", res.TpSrc)
 		case OvsTunnelKeyAttrTpDst:
 			res.Present.TpDst = true
 			res.TpDst = binary.BigEndian.Uint16(tunAttr.Msg)

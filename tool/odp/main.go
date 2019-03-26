@@ -1127,18 +1127,18 @@ func listFlows(f Flags) bool {
 
 	fmt.Println("follow")
 
-	res2, _, err := dp2.FollowFlows()
+	_, _, err = dp2.FollowFlows()
 	if err != nil {
 		return false
 
 	}
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
-	go func() {
-		for flow2 := range res2 {
-			fmt.Println(fmt.Sprintf("%+v", flow2))
-		}
-	}()
+	//go func() {
+	//	for flow2 := range res2 {
+	//		fmt.Println(fmt.Sprintf("%+v", flow2))
+	//	}
+	//}()
 
 	<-stop
 	fmt.Println("here1")
