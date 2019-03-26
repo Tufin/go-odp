@@ -1468,6 +1468,7 @@ loop:
 			return err
 		}
 		for _, msg := range msgs {
+			fmt.Println("=========================================================================================")
 			if msg.Header.Type == unix.NLMSG_ERROR {
 				return errors.New("NLMSG_ERROR")
 			}
@@ -1519,6 +1520,8 @@ func parsePayload(payload []byte) (*OvsFlowInfo, error) {
 			flow.Actions, _ = parseActions(attr.Msg)
 		case OVS_FLOW_ATTR_KEY:
 			flow.OvsFlowKeys, _ = parseFlowKeys(attr.Msg)
+		default:
+			fmt.Println("TL Attr: ", attr.Typ)
 		}
 	}
 	return flow, nil
@@ -1535,6 +1538,7 @@ func parseFlowKeys(flowKeysPayload []byte) (OvsFlowKeys, error) {
 	}
 
 	for _, attrKey := range keys {
+		fmt.Println("FlowKey: ", attrKey.Typ)
 		switch OvsKeyAttrType(attrKey.Typ) {
 		case OvsAttrUnspec:
 			res = append(res, OvsAttrUnspecFlowKey{})
@@ -1581,7 +1585,7 @@ func parseFlowKeys(flowKeysPayload []byte) (OvsFlowKeys, error) {
 		case OvsAttrSctp:
 			fmt.Println("OvsAttrSctp")
 		case OvsAttrTcpFlags:
-			fmt.Println("OvsAttrTcpFlags")
+			fmt.Println("OvsAttrTcpFlags: ", *(*uint16)(unsafe.Pointer(&attrKey.Msg)))
 		case OvsAttrDpHash:
 			fmt.Println("OvsAttrDpHash")
 		case OvsAttrRecircId:
@@ -1589,13 +1593,15 @@ func parseFlowKeys(flowKeysPayload []byte) (OvsFlowKeys, error) {
 		case OvsAttrMpls:
 			fmt.Println("OvsAttrMpls")
 		case OvsAttrCtState:
-			ctfk := OvsAttrCtStateFlowKey{CtState: *(*uint32)(unsafe.Pointer(&attrKey.Msg[0]))}
+			ctfk := OvsAttrCtStateFlowKey{CtState: *(*uint32)(unsafe.Pointer(&attrKey.Msg))}
+
+			fmt.Println(fmt.Sprintf("CS: %x", ctfk.CtState))
 			res = append(res, ctfk)
 		case OvsAttrCtZone:
-			ctzonefk := OvsAttrCtZoneFlowKey{Zone: *(*uint16)(unsafe.Pointer(&attrKey.Msg[0]))}
+			ctzonefk := OvsAttrCtZoneFlowKey{Zone: *(*uint16)(unsafe.Pointer(&attrKey.Msg))}
 			res = append(res, ctzonefk)
 		case OvsAttrCtMark:
-			ctmarkfk := OvsAttrCtMarkFlowKey{Mark: *(*uint32)(unsafe.Pointer(&attrKey.Msg[0]))}
+			ctmarkfk := OvsAttrCtMarkFlowKey{Mark: *(*uint32)(unsafe.Pointer(&attrKey.Msg))}
 			res = append(res, ctmarkfk)
 		case OvsAttrCtLabels:
 			ctmarkfk := OvsAttrCtLabelsFlowKey{}
@@ -1603,11 +1609,11 @@ func parseFlowKeys(flowKeysPayload []byte) (OvsFlowKeys, error) {
 			res = append(res, ctmarkfk)
 		case OvsAttrCtOrigTupleIpv4:
 			tupIpv4 := OvsAttrCtOrigTupleIpv4FlowKey{}
-			binary.Read(bytes.NewReader(attrKey.Msg), binary.BigEndian, &tupIpv4)
+			binary.Read(bytes.NewReader(attrKey.Msg[:]), binary.BigEndian, &tupIpv4)
 			res = append(res, tupIpv4)
 		case OvsAttrCtOrigTupleIpv6:
 			tupIpv6 := OvsAttrCtOrigTupleIpv6FlowKey{}
-			binary.Read(bytes.NewReader(attrKey.Msg), binary.BigEndian, &tupIpv6)
+			binary.Read(bytes.NewReader(attrKey.Msg[:]), binary.BigEndian, &tupIpv6)
 			res = append(res, tupIpv6)
 		}
 	}
@@ -1624,6 +1630,7 @@ func parseActions(b []byte) ([]OvsAction, error) {
 		return []OvsAction{}, fmt.Errorf("invalid action attr: %s", err)
 	}
 	for _, attr := range attrs {
+		fmt.Println("Action: ", attr.Typ)
 		switch attr.Typ {
 		case OVS_ACTION_ATTR_OUTPUT:
 		case OVS_ACTION_ATTR_SET:
@@ -1655,6 +1662,7 @@ func parseOvsCtAction(payload []byte) (OvsCtAction, error) {
 
 	var res OvsCtAction
 	for _, attr := range attrs {
+		fmt.Println("Type: ", attr.Typ)
 		switch OvsCtAttrType(attr.Typ) {
 
 		case OvsCtAttrTypeUnspec:
@@ -1665,7 +1673,7 @@ func parseOvsCtAction(payload []byte) (OvsCtAction, error) {
 
 		case OvsCtAttrTypeZone:
 			fmt.Println("Zone")
-			res.Zone = *(*uint16)(unsafe.Pointer(&attr.Msg[0]))
+			res.Zone = *(*uint16)(unsafe.Pointer(&attr.Msg))
 
 		case OvsCtAttrTypeMark:
 			fmt.Println("Mark")
@@ -1683,11 +1691,11 @@ func parseOvsCtAction(payload []byte) (OvsCtAction, error) {
 			fmt.Println("Force Commit")
 
 		case OvsCtAttrTypeEventMask:
-			res.EventMask = *(*uint32)(unsafe.Pointer(&attr.Msg[0]))
-
+			res.EventMask = *(*uint32)(unsafe.Pointer(&attr.Msg))
+			fmt.Println(fmt.Sprintf("EM: %x", res.EventMask))
 			for flag := uint(0); flag < uint(Max); flag++ {
 				if res.EventMask&(1<<flag) != 0 {
-					fmt.Printf("%+v", IpConntrackEvents(flag))
+					fmt.Println(fmt.Sprintf("%+v", IpConntrackEvents(flag)))
 				}
 
 			}
@@ -1719,7 +1727,7 @@ func parseOvsSetAction(payload []byte) ([]OvsAction, error) {
 	// e905eabc90a5b7) means that OVS_KEY_ATTR_TUNNEL gets
 	// incorrectly encoded, so that the nested attributes directly
 	// contain the OVS_TUNNEL_KEY_ATTR attributes.  But we can
-	// detect the consequences of that bug: tunnel attributes must
+	// detect the consequences of that bug: tunnel attributes muzst
 	// contain either OVS_TUNNEL_KEY_ATTR_IPV4_DST or
 	// OVS_TUNNEL_KEY_ATTR_IPV4_SRC, and the sizes of those
 	// attributes differ from the corresponding OVS_KEY_ATTR
