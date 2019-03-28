@@ -1075,43 +1075,43 @@ func listFlows(f Flags) bool {
 	var showStats bool
 	f.BoolVar(&showStats, "stats", false, "show statistics")
 	args := f.Parse(1, 1)
-
-	dpif, err := odp.NewDpif()
-	if err != nil {
-		return printErr("%s", err)
-	}
-	defer dpif.Close()
-
-	dp, dpname := lookupDatapath(dpif, args[0])
-	if dp == nil {
-		return false
-	}
-
-	flows, err := dp.EnumerateFlows()
-	if err != nil {
-		return printErr("%s", err)
-	}
-
-	for _, flow := range flows {
-		os.Stdout.WriteString(dpname)
-
-		err = printFlowKeys(flow.FlowKeys, *dp)
-		if err != nil {
-			return printErr("%s", err)
-		}
-
-		err = printFlowActions(flow.Actions, *dp)
-		if err != nil {
-			return printErr("%s", err)
-		}
-
-		if showStats {
-			fmt.Printf(": %d packets, %d bytes, used %d",
-				flow.Packets, flow.Bytes, flow.Used)
-		}
-
-		os.Stdout.WriteString("\n")
-	}
+	//
+	//dpif, err := odp.NewDpif()
+	//if err != nil {
+	//	return printErr("%s", err)
+	//}
+	//defer dpif.Close()
+	//
+	//dp, dpname := lookupDatapath(dpif, args[0])
+	//if dp == nil {
+	//	return false
+	//}
+	//
+	//flows, err := dp.EnumerateFlows()
+	//if err != nil {
+	//	return printErr("%s", err)
+	//}
+	//
+	//for _, flow := range flows {
+	//	os.Stdout.WriteString(dpname)
+	//
+	//	err = printFlowKeys(flow.FlowKeys, *dp)
+	//	if err != nil {
+	//		return printErr("%s", err)
+	//	}
+	//
+	//	err = printFlowActions(flow.Actions, *dp)
+	//	if err != nil {
+	//		return printErr("%s", err)
+	//	}
+	//
+	//	if showStats {
+	//		fmt.Printf(": %d packets, %d bytes, used %d",
+	//			flow.Packets, flow.Bytes, flow.Used)
+	//	}
+	//
+	//	os.Stdout.WriteString("\n")
+	//}
 
 	dpif2, err := odp.NewDpifGroups(0x3ffff)
 	if err != nil {
@@ -1121,24 +1121,24 @@ func listFlows(f Flags) bool {
 	defer dpif2.Close()
 
 	dp2, _ := lookupDatapath(dpif2, args[0])
-	if dp == nil {
+	if dp2 == nil {
 		return false
 	}
 
-	fmt.Println("follow")
+	//fmt.Println("follow")
 
-	_, _, err = dp2.FollowFlows()
+	res2, _, err := dp2.FollowFlows()
 	if err != nil {
 		return false
 
 	}
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt)
-	//go func() {
-	//	for flow2 := range res2 {
-	//		fmt.Println(fmt.Sprintf("%+v", flow2))
-	//	}
-	//}()
+	go func() {
+		for flow2 := range res2 {
+			fmt.Println(fmt.Sprintf("%+v", flow2))
+		}
+	}()
 
 	<-stop
 	fmt.Println("here1")
