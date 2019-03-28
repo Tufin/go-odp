@@ -134,6 +134,7 @@ const ( // ovs_flow_attr
 	OVS_FLOW_ATTR_USED      = 5
 	OVS_FLOW_ATTR_CLEAR     = 6
 	OVS_FLOW_ATTR_MASK      = 7
+	OVS_FLOW_ATTR_UFID      = 9
 )
 
 type OvsFlowStats struct {
