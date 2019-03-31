@@ -113,6 +113,19 @@ func NewDpifGroups(groups uint32) (*Dpif, error) {
 		}
 	}
 
+
+	group, err := dpif.getMCGroup(FLOW,  "ovs_flow")
+
+	if err != nil {
+		sock.Close()
+		return nil, err
+	}
+
+	if err := syscall.SetsockoptInt(sock.fd, SOL_NETLINK, syscall.NETLINK_ADD_MEMBERSHIP, int(group)); err != nil {
+		sock.Close()
+		return nil, err
+	}
+
 	return dpif, nil
 }
 

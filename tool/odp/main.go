@@ -1113,12 +1113,13 @@ func listFlows(f Flags) bool {
 	//	os.Stdout.WriteString("\n")
 	//}
 
-	dpif2, err := odp.NewDpifGroups(0x3ffff)
+	dpif2, err := odp.NewDpifGroups(0)
 	if err != nil {
 		fmt.Println(err)
 		return false
 	}
 	defer dpif2.Close()
+
 
 	dp2, _ := lookupDatapath(dpif2, args[0])
 	if dp2 == nil {
