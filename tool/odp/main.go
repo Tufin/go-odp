@@ -13,8 +13,9 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/tufin/go-odp/odp"
 	"os/signal"
+
+	"github.com/tufin/go-odp/odp"
 )
 
 func printErr(f string, a ...interface{}) bool {
@@ -1120,7 +1121,6 @@ func listFlows(f Flags) bool {
 	}
 	defer dpif2.Close()
 
-
 	dp2, _ := lookupDatapath(dpif2, args[0])
 	if dp2 == nil {
 		return false
@@ -1142,7 +1142,6 @@ func listFlows(f Flags) bool {
 	}()
 
 	<-stop
-	fmt.Println("here1")
 
 	return true
 }
